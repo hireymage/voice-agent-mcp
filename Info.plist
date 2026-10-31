@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Lets the agent read and add events, only when you turn on these tools. What it reads is sent to the AI model you chose.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Lets the agent find people in your contacts, only when you turn on this tool. What it finds is sent to the AI model you chose.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Lets the agent read, add and complete reminders, only when you turn on these tools. What it reads is sent to the AI model you chose.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connects to the LLM, MCP, speech-to-text and text-to-speech servers you configure on your local network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>The microphone is used to hear what you say to the agent.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Apple speech recognition turns your speech into text when it is the selected speech-to-text provider.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>CPTemplateApplicationSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>CPTemplateApplicationScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>CarPlay</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).CarPlaySceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
+</dict>
+</plist>

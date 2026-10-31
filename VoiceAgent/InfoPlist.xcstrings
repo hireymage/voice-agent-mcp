@@ -1,0 +1,108 @@
+{
+  "sourceLanguage": "en",
+  "version": "1.0",
+  "strings": {
+    "NSCalendarsFullAccessUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets the agent read and add events, only when you turn on these tools. What it reads is sent to the AI model you chose."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umožní agentovi číst a přidávat události, jen když tyto nástroje zapnete. To, co přečte, se posílá AI modelu, který jste vybrali."
+          }
+        }
+      }
+    },
+    "NSContactsUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets the agent find people in your contacts, only when you turn on this tool. What it finds is sent to the AI model you chose."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umožní agentovi hledat lidi v kontaktech, jen když tento nástroj zapnete. To, co najde, se posílá AI modelu, který jste vybrali."
+          }
+        }
+      }
+    },
+    "NSRemindersFullAccessUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets the agent read, add and complete reminders, only when you turn on these tools. What it reads is sent to the AI model you chose."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umožní agentovi číst, přidávat a dokončovat připomínky, jen když tyto nástroje zapnete. To, co přečte, se posílá AI modelu, který jste vybrali."
+          }
+        }
+      }
+    },
+    "NSMicrophoneUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The microphone is used to hear what you say to the agent."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mikrofon slouží k tomu, aby agent slyšel, co říkáte."
+          }
+        }
+      }
+    },
+    "NSSpeechRecognitionUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple speech recognition turns your speech into text when it is the selected speech-to-text provider."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozpoznávání řeči Apple převádí vaši řeč na text, když je vybrané jako poskytovatel převodu řeči na text."
+          }
+        }
+      }
+    },
+    "NSLocalNetworkUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connects to the LLM, MCP, speech-to-text and text-to-speech servers you configure on your local network."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Připojuje se k serverům LLM, MCP a řeči, které si nastavíte ve své místní síti."
+          }
+        }
+      }
+    }
+  }
+}
