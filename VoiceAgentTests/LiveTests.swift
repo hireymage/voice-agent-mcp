@@ -233,6 +233,17 @@ final class LiveTests: XCTestCase {
         XCTAssertTrue(text.lowercased().contains("zkouška") || text.lowercased().contains("den"), text)
     }
 
+    func testPiperSentenceEndsInSilence() async throws {
+        var tts = TTSSettings()
+        tts.kind = .piper
+        tts.url = try env("LIVE_PIPER_URL")
+        tts.voice = try env("LIVE_PIPER_VOICE")
+        let clip = try await makeTTS(tts).synthesize("Dobrý den, tohle je zkouška hlasu.")
+        let n = Int(clip.buffer.frameLength)
+        let end = UnsafeBufferPointer(start: clip.buffer.floatChannelData![0] + n - 4800, count: 4800)
+        XCTAssertLessThan(end.map(abs).max() ?? 1, 0.01, "the last 100 ms must not click")
+    }
+
     func testTwoRolesLoadWithoutRepeats() async throws {
         let token = try env("LIVE_MCP_TOKEN")
         let result = await MCPTools.connect([try memory()]) { _ in ["Authorization": "Bearer \(token)"] }

@@ -59,8 +59,11 @@ enum AudioFormats {
     }
 
     /// Servers that stream WAV write placeholder sizes into the header, which the decoder rejects.
+    /// A size that fits the file stays: what follows the audio is not audio, and Piper's server adds a line of text there.
     static func fixedWavHeader(_ data: Data) -> Data {
-        guard data.count > 44, let dataTag = data.range(of: Data("data".utf8), in: 12..<min(data.count, 4096)) else { return data }
+        guard data.count > 44, let dataTag = data.range(of: Data("data".utf8), in: 12..<min(data.count, 4096)), dataTag.lowerBound - data.startIndex + 8 <= data.count else { return data }
+        let declared = (0..<4).reduce(0) { $0 | Int(data[dataTag.upperBound + $1]) << (8 * $1) }
+        if declared > 0, dataTag.lowerBound - data.startIndex + 8 + declared <= data.count { return data }
         var d = data
         func put(_ value: Int, at offset: Int) {
             var v = UInt32(value).littleEndian
