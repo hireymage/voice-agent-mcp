@@ -327,6 +327,22 @@ final class SpeechTextTests: XCTestCase {
         let clip = try AudioFormats.decode(w)
         XCTAssertGreaterThan(clip.buffer.frameLength, 2000, "1000 samples at 16 kHz become 3000 at 48 kHz")
     }
+
+    func testZeroWavSizeIsFixed() throws {
+        var w = wavData([Int16](repeating: 100, count: 1000), sampleRate: 16000)
+        w.replaceSubrange(40..<44, with: [0, 0, 0, 0])
+        let clip = try AudioFormats.decode(w)
+        XCTAssertGreaterThan(clip.buffer.frameLength, 2000)
+    }
+
+    /// Piper's server sends the audio with a correct header and then the line "/dev/stdout". Played as audio it clicks.
+    func testWhatFollowsTheAudioIsNotPlayed() throws {
+        let silence = wavData([Int16](repeating: 0, count: 1000), sampleRate: 16000)
+        let clip = try AudioFormats.decode(silence + Data("/dev/stdout\n".utf8))
+        XCTAssertEqual(AudioFormats.fixedWavHeader(silence + Data("x".utf8)), silence + Data("x".utf8), "a correct header stays")
+        let samples = UnsafeBufferPointer(start: clip.buffer.floatChannelData![0], count: Int(clip.buffer.frameLength))
+        XCTAssertLessThan(samples.map(abs).max() ?? 1, 0.001)
+    }
 }
 
 final class CarPlayTests: XCTestCase {

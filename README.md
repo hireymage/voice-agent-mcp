@@ -29,6 +29,11 @@ xcodebuild test -project VoiceAgent.xcodeproj -scheme VoiceAgent -destination 'p
 
 CarPlay code is included, but a real car needs the voice-based conversation entitlement from Apple, so `CarPlay.entitlements` applies only to the simulator.
 
+
+## Version numbers
+
+Run `./set-version.sh` before each build. It sets the version to `1.year.week` and the build to `day.hour` from the current date, for example `1.26.44` (`7.15`): a two-digit year, a two-digit ISO week, and Monday as day 1. Apple allows at most three numbers in each field.
+
 ## Privacy
 
 The app collects nothing. API keys stay in the iOS Keychain. See the [privacy policy](https://hireymage.github.io/voice-agent/privacy.html) and [support page](https://hireymage.github.io/voice-agent/).
