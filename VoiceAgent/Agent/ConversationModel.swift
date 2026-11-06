@@ -32,7 +32,16 @@ final class ConversationModel {
     private(set) var micOn = false
     private(set) var carSession = false
     private var greeted = false
-    private var live: LiveWork?
+    private var live: LiveWork? { didSet { if live == nil { liveSubagents = 0 } } }
+    /// Subagents at work now, shown next to the state. One that was stopped no longer counts.
+    var activeSubagents: Int { delegated.count + liveSubagents + workSubagents + queuedSubagents }
+    private var delegated: Set<UUID> = []
+    private var liveSubagents = 0
+    /// Work started while the user talked, still finishing after the turn has taken it over.
+    private var workSubagents = 0
+    /// Subagents already looking up what a waiting message asks.
+    private var queuedWork: LiveWork? { didSet { if queuedWork == nil { queuedSubagents = 0 } } }
+    private var queuedSubagents = 0
     private var liveItem: UUID?
     /// Finished utterances waiting to go out together: the user went on before the first one was transcribed.
     private var heardParts: [String] = []
@@ -49,6 +58,18 @@ final class ConversationModel {
     private var player: SpeechPlayer?
     private var turn: Task<Void, Never>?
     private var transcription: Task<Void, Never>?
+    /// Interrupting on the first word: listens to the speech that started while the agent talks.
+    private var wordWatch: Task<Void, Never>?
+    private var wordWatchEnded: [Int16]?
+    /// Messages that came while the agent was still working on the last one, before it said anything: that work,
+    /// subagents included, goes on, and these go out together once it has answered.
+    private var queued: [String] = []
+    /// Subagents working in the background, and the reports of those that finished, waiting for a quiet moment.
+    private var background: [UUID: Task<Void, Never>] = [:]
+    private var reports: [String] = []
+    private var hearingOverWork = false
+    /// How much the audio sounds like speech, 0…1; tests replace it.
+    var speechConfidence: @Sendable ([Int16]) -> Double = { SpeechCheck.confidence($0) }
     private var turnID = UUID()
     private var partial = ""
     private var turnRunning = false
@@ -56,10 +77,11 @@ final class ConversationModel {
     private var turnSpeaking = false
 
     // What the current connections and soul were prepared from; a settings change prepares them again.
-    private struct Prepared: Equatable { let profile: UUID; let mcp: [MCPServer]; let soul: SoulSettings; let revision: Int; let phone: [String] }
+    private struct Prepared: Equatable { let profile: UUID; let mcp: [MCPServer]; let soul: SoulSettings; let subagentSoul: SoulSettings; let revision: Int; let phone: [String] }
     private var prepared: Prepared?
     private var mcpTools: [BoundTool] = []
     private var soulPrompt = ""
+    private var subagentPrompt = ""
 
     init(store: SettingsStore) {
         self.store = store
@@ -73,6 +95,13 @@ final class ConversationModel {
     func newConversation() {
         dropLiveWork()
         interrupt()
+        queued = []
+        queuedWork?.cancel()
+        queuedWork = nil
+        background.values.forEach { $0.cancel() }
+        background = [:]
+        delegated = []
+        reports = []
         setAside = ""
         history = []
         items = []
@@ -114,6 +143,8 @@ final class ConversationModel {
     }
 
     func interrupt() {
+        stopWordWatch()
+        workSubagents = 0 // stopped work no longer counts, even while its request is still being torn down
         transcription?.cancel()
         transcription = nil
         heardParts = []
@@ -242,14 +273,23 @@ final class ConversationModel {
         guard micOn else { return }
         switch event {
         case .started:
-            if turnRunning {
+            if turnRunning, partial.isEmpty {
+                // Nothing said yet: this speech becomes the next message and the work on the last one goes on.
+                hearingOverWork = true
+            } else if turnRunning {
                 if !settings.voice.bargeIn { return }
+                if settings.voice.bargeInOnWord {
+                    watchForWord()
+                    return
+                }
                 interrupt()
             }
             hearing = true
             phase = .hearing
             // Going on before the last words were transcribed is one message, not a new one that replaces them.
-            if transcription != nil || !heardParts.isEmpty {
+            if turnRunning {
+                // no work while talking for a message that waits for its turn
+            } else if transcription != nil || !heardParts.isEmpty {
                 live?.resumedSpeaking()
             } else {
                 dropLiveWork()
@@ -258,6 +298,16 @@ final class ConversationModel {
         case .phrase(let pcm):
             live?.heard(pcm)
         case .discarded:
+            if turnRunning, wordWatch != nil {
+                stopWordWatch()
+                return
+            }
+            if turnRunning, hearingOverWork {
+                hearingOverWork = false
+                hearing = false
+                if transcription == nil { phase = .thinking }
+                return
+            }
             hearing = false
             if transcription != nil {
                 phase = .transcribing
@@ -266,17 +316,73 @@ final class ConversationModel {
                 restAfterTurn()
             }
         case .ended(let pcm):
-            if turnRunning { return } // voice interruption off: said over the assistant
+            if turnRunning, !hearingOverWork {
+                if wordWatch != nil { wordWatchEnded = pcm } // the watch makes the last check on all of it
+                return // otherwise voice interruption is off: said over the assistant
+            }
+            let strict = hearingOverWork && settings.voice.bargeInOnWord
+            hearingOverWork = false
             hearing = false
             live?.stoppedSpeaking()
-            transcribe(pcm)
+            transcribe(pcm, onlySpeech: strict)
         }
     }
 
-    private func transcribe(_ pcm: [Int16]) {
+    /// The agent goes on talking while what is heard is transcribed every half second. The first word stops it and
+    /// the speech goes on as a message; speech that ends without a word (a cough, noise) changes nothing.
+    private func watchForWord() {
+        stopWordWatch()
+        let stt = makeSTT(settings.stt)
+        let speech = speechConfidence
+        let turn = turnID
+        var this: Task<Void, Never>?
+        this = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard turnRunning, turnID == turn, wordWatch == this else { return }
+                let ended = wordWatchEnded
+                guard let pcm = ended ?? audio.currentPhrase() else { continue }
+                if ended == nil, pcm.count < PhraseDetector.sampleRate / 2 { continue }
+                async let sounds = Task.detached { speech(pcm) }.value
+                let text = (try? await stt.transcribe(wav: wavData(pcm, sampleRate: PhraseDetector.sampleRate))) ?? ""
+                // Whisper writes whole sentences for noise, so the word counts only if the audio is speech too.
+                let isSpeech = await sounds >= 0.5
+                guard turnRunning, turnID == turn, wordWatch == this else { return }
+                if AgentSetup.hasWords(text), isSpeech {
+                    stopWordWatch()
+                    interrupt()
+                    if ended != nil {
+                        heardParts = [text]
+                        _ = sendHeard()
+                    } else {
+                        hearing = true
+                        phase = .hearing
+                        dropLiveWork()
+                        beginLiveWork()
+                    }
+                    return
+                }
+                if ended != nil {
+                    stopWordWatch()
+                    return
+                }
+            }
+        }
+        wordWatch = this
+    }
+
+    private func stopWordWatch() {
+        wordWatch?.cancel()
+        wordWatch = nil
+        wordWatchEnded = nil
+    }
+
+    /// `onlySpeech`: Whisper writes sentences for noise, so the text counts only if the audio sounds like speech.
+    private func transcribe(_ pcm: [Int16], onlySpeech: Bool = false) {
         phase = .transcribing
         let wav = wavData(pcm, sampleRate: PhraseDetector.sampleRate)
         let stt = makeSTT(settings.stt)
+        let speech = speechConfidence
         let earlier = transcription
         let round = hearingRound
         var this: Task<Void, Never>?
@@ -284,8 +390,9 @@ final class ConversationModel {
             await earlier?.value
             do {
                 let text = try await stt.transcribe(wav: wav)
+                let isSpeech = !onlySpeech ? true : await Task.detached { AgentSetup.hasWords(text) && speech(pcm) >= 0.5 }.value
                 guard round == hearingRound else { return }
-                if !text.isEmpty { heardParts.append(text) }
+                if !text.isEmpty, isSpeech { heardParts.append(text) }
             } catch {
                 if round != hearingRound || isCancellation(error) { return }
                 report(error)
@@ -341,13 +448,20 @@ final class ConversationModel {
     // MARK: - While the user talks
 
     private func beginLiveWork() {
-        guard settings.workWhileTalking, settings.subagentEnabled, prepared == wantedPreparation else { return }
+        guard settings.workWhileTalking else { return }
+        live = makeLiveWork()
+        live?.onRunning = { [weak self] in self?.liveSubagents = $0 }
+    }
+
+    /// Subagents that start on what can be looked up before the main agent gets the message. Reading only.
+    private func makeLiveWork() -> LiveWork? {
+        guard settings.subagentEnabled, prepared == wantedPreparation else { return nil }
         let phone = PhoneTools.agentTools(enabled: settings.profilePhoneTools.filter(PhoneTools.readsOnly))
         let taken = Set(phone.map(\.def.name))
         let reading = phone + mcpTools.filter { $0.readOnly != false && !taken.contains($0.def.name) }.map { AgentTool.mcp($0) }
         let choice = settings.subagent.serverID == nil ? settings.main : settings.subagent
-        guard !reading.isEmpty, let subagent = try? client(for: choice, missing: "") else { return }
-        live = LiveWork(planner: subagent, subagent: subagent, tools: reading, stt: makeSTT(settings.stt), subagentInstructions: settings.subagentInstructions, onText: { [weak self] text in
+        guard !reading.isEmpty, let subagent = try? client(for: choice, thinking: settings.profile.subagentThinking, missing: "") else { return nil }
+        return LiveWork(planner: subagent, subagent: subagent, tools: reading, stt: makeSTT(settings.stt), subagentInstructions: subagentPrompt, onText: { [weak self] text in
             self?.showLiveText(text)
         })
     }
@@ -370,18 +484,38 @@ final class ConversationModel {
     }
 
     private func restAfterTurn() {
-        if turnRunning { return }
-        phase = micOn ? .listening : .idle
+        if turnRunning {
+            if phase == .hearing || phase == .transcribing { phase = .thinking } // speech over the work led to nothing
+            return
+        }
+        if !hearing, transcription == nil { phase = micOn ? .listening : .idle }
+        sendWhatWaits()
     }
 
     // MARK: - One turn
 
     private func startTurn(_ text: String, shown: Bool = true, sentWith earlier: String = "") {
+        // Nothing answered yet: the work on the last message goes on and this one waits for its turn.
+        if turnRunning, partial.isEmpty, shown {
+            dropLiveWork()
+            items.append(ChatItem(kind: .user, text: text))
+            queued.append(earlier.isEmpty ? text : earlier + " " + text)
+            setAside = ""
+            phase = .thinking
+            // Its own subagents start now, beside the ones still working on the earlier message.
+            if queuedWork == nil {
+                queuedWork = makeLiveWork()
+                queuedWork?.onRunning = { [weak self] in self?.queuedSubagents = $0 }
+            }
+            queuedWork?.consider(queued.joined(separator: "\n\n"))
+            return
+        }
         let work = live
         let shownItem = liveItem
         live = nil
         liveItem = nil
         interrupt()
+        work?.onRunning = { [weak self] in self?.workSubagents = $0 }
         let id = UUID()
         turnID = id
         partial = ""
@@ -395,8 +529,21 @@ final class ConversationModel {
             items.append(item)
             userItem = item.id
         }
+        var message = earlier.isEmpty ? text : earlier + " " + text
+        if !queued.isEmpty {
+            message = (queued + [message]).joined(separator: "\n\n")
+            queued = []
+        }
+        if !reports.isEmpty {
+            message = AgentSetup.backgroundReports(reports) + (message.isEmpty ? "" : "\n\n" + message)
+            reports = []
+        }
+        // The last message got no answer before this one stopped the work on it (Stop, or speaking over it): both go
+        // as one message, or the model answers only the newer one (and some APIs refuse two user messages in a row).
+        if history.last?.role == .user {
+            message = history.removeLast().text + "\n\n" + message
+        }
         let before = history
-        let message = earlier.isEmpty ? text : earlier + " " + text
         setAside = ""
         history.append(.user(message))
         turn = Task { await runTurn(id: id, before: before, message: message, userItem: userItem, work: work) }
@@ -408,7 +555,7 @@ final class ConversationModel {
         do {
             let spoken = settings.profile.speakReplies || carSession
             phase = .preparing
-            let main = try client(for: settings.main, missing: "Choose the main agent's server and model in Settings.")
+            let main = try client(for: settings.main, thinking: settings.profile.mainThinking, missing: "Choose the main agent's server and model in Settings.")
             try await prepare(main: main)
             guard id == turnID else { return }
             phase = .thinking
@@ -501,31 +648,56 @@ final class ConversationModel {
         guard settings.subagentEnabled else { return available }
         guard !available.isEmpty else { return [] }
         let choice = settings.subagent.serverID == nil ? settings.main : settings.subagent
-        let sub = try client(for: choice, missing: "Choose the subagent's server and model in Settings.")
-        let system = AgentSetup.subagentSystem(instructions: settings.subagentInstructions)
+        let sub = try client(for: choice, thinking: settings.profile.subagentThinking, missing: "Choose the subagent's server and model in Settings.")
+        let system = AgentSetup.subagentSystem(instructions: subagentPrompt)
         let subTools = available
         let brief = settings.server(settings.main.serverID)?.api == .apple
-        let delegate = AgentTool(def: AgentSetup.delegateDef(tools: subTools.map(\.def), brief: brief)) { arguments in
+        let delegate = AgentTool(def: AgentSetup.delegateDef(tools: subTools.map(\.def), brief: brief)) { [weak self] arguments in
             let task = JSONValue.parse(arguments)?["task"]?.string ?? arguments
-            do {
-                let outcome = try await AgentRunner(client: sub, system: system, tools: subTools).run(messages: [.user(task)])
-                return (outcome.text, false)
-            } catch {
-                return (error.localizedDescription, true)
-            }
+            // The main agent does not wait: it answers the user, and the report comes later as its own message.
+            await self?.startInBackground(task, runner: AgentRunner(client: sub, system: system, tools: subTools))
+            return (AgentSetup.delegateStarted, false)
         }
         return [delegate]
     }
 
-    private func client(for choice: ModelChoice, missing: String) throws -> LLMClient {
+    private func startInBackground(_ task: String, runner: AgentRunner) {
+        let run = UUID()
+        delegated.insert(run)
+        background[run] = Task { [weak self] in
+            var report: String
+            do {
+                report = try await runner.run(messages: [.user(task)]).text
+            } catch {
+                report = tr("Failed: %@", error.localizedDescription)
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.delegated.remove(run)
+            self.background[run] = nil
+            self.reports.append("Task: \(task)\nReport: \(report)")
+            self.restAfterTurn()
+        }
+    }
+
+    /// Reports and waiting messages go to the main agent when nobody is talking and nothing is being said.
+    private func sendWhatWaits() {
+        guard !turnRunning, !hearing, transcription == nil, !queued.isEmpty || !reports.isEmpty else { return }
+        let next = queued.joined(separator: "\n\n")
+        queued = []
+        live = queuedWork // what its subagents found goes with it
+        queuedWork = nil
+        startTurn(next, shown: false)
+    }
+
+    private func client(for choice: ModelChoice, thinking: Thinking, missing: String) throws -> LLMClient {
         guard let server = settings.server(choice.serverID), !choice.model.isEmpty else {
             throw AppError(missing)
         }
-        return makeLLMClient(LLMConfig(api: server.api, baseURL: server.baseURL, apiKey: Keychain.get(server.keyAccount) ?? "", model: choice.model, extra: try parseExtraParams(choice.extraParams)))
+        return makeLLMClient(LLMConfig(api: server.api, baseURL: server.baseURL, apiKey: Keychain.get(server.keyAccount) ?? "", model: choice.model, extra: try parseExtraParams(choice.extraParams), thinking: thinking))
     }
 
     private var wantedPreparation: Prepared {
-        Prepared(profile: settings.activeProfileID, mcp: settings.profileMCP, soul: settings.profile.soul, revision: store.secretsRevision, phone: settings.profilePhoneTools)
+        Prepared(profile: settings.activeProfileID, mcp: settings.profileMCP, soul: settings.profile.soul, subagentSoul: settings.profile.subagentSoul, revision: store.secretsRevision, phone: settings.profilePhoneTools)
     }
 
     /// Connects MCP and loads the soul, once per conversation and again after a settings change.
@@ -545,6 +717,15 @@ final class ConversationModel {
             soulPrompt = try await AgentSetup.loadSoul(instruction: soul, client: main, tools: mcpTools)
         } else {
             soulPrompt = soul
+        }
+        let subagentSoul = settings.profile.subagentSoul
+        let subText = subagentSoul.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if subagentSoul.loadViaMCP, !subText.isEmpty, settings.subagentEnabled {
+            let choice = settings.subagent.serverID == nil ? settings.main : settings.subagent
+            let sub = (try? client(for: choice, thinking: settings.profile.subagentThinking, missing: "")) ?? main
+            subagentPrompt = try await AgentSetup.loadSoul(instruction: subText, client: sub, tools: mcpTools)
+        } else {
+            subagentPrompt = subagentSoul.loadViaMCP ? "" : subText
         }
         prepared = wanted
     }

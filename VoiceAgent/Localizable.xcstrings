@@ -291,6 +291,23 @@
         }
       }
     },
+    "After the first word": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After the first word"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po prvním slově"
+          }
+        }
+      }
+    },
     "Agent": {
       "extractionState": "manual",
       "localizations": {
@@ -321,6 +338,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vždy připraven"
+          }
+        }
+      }
+    },
+    "An instruction for the model. Example: Call get_persona on the memory MCP server with the name Alex and the role research.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An instruction for the model. Example: Call get_persona on the memory MCP server with the name Alex and the role research."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokyn pro model. Příklad: Zavolej get_persona na paměťovém MCP serveru se jménem Alex a rolí research."
           }
         }
       }
@@ -525,6 +559,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bezpečnostní kontrola Applu tuto odpověď zastavila. Může se to stát i u neškodného textu. Zkuste to říct jinak nebo použijte jiný model."
+          }
+        }
+      }
+    },
+    "As soon as I speak": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As soon as I speak"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hned, jak mluvím"
           }
         }
       }
@@ -971,23 +1022,6 @@
         }
       }
     },
-    "Extra instructions for the subagent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Extra instructions for the subagent"
-          }
-        },
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Další pokyny pro subagenta"
-          }
-        }
-      }
-    },
     "Extra parameters must be a JSON object.": {
       "extractionState": "manual",
       "localizations": {
@@ -1018,6 +1052,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Další parametry požadavku"
+          }
+        }
+      }
+    },
+    "Failed: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed: %@"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepovedlo se: %@"
           }
         }
       }
@@ -1137,6 +1188,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Slyším vás…"
+          }
+        }
+      }
+    },
+    "High": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vysoké"
+          }
+        }
+      }
+    },
+    "How the subagent works when the main agent hands it a task. Used as written, on top of its basic rules.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How the subagent works when the main agent hands it a task. Used as written, on top of its basic rules."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak subagent pracuje, když mu hlavní agent předá úkol. Použije se přesně tak, jak je napsáno, navíc k jeho základním pravidlům."
           }
         }
       }
@@ -1430,6 +1515,23 @@
         }
       }
     },
+    "Low": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nízké"
+          }
+        }
+      }
+    },
     "MCP servers": {
       "extractionState": "manual",
       "localizations": {
@@ -1515,6 +1617,23 @@
         }
       }
     },
+    "Medium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Střední"
+          }
+        }
+      }
+    },
     "Message": {
       "extractionState": "manual",
       "localizations": {
@@ -1596,6 +1715,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ID modelu"
+          }
+        }
+      }
+    },
+    "Model default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model default"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podle modelu"
+          }
+        }
+      }
+    },
+    "Model thinking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model thinking"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Přemýšlení modelu"
           }
         }
       }
@@ -1919,23 +2072,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kompatibilní s OpenAI"
-          }
-        }
-      }
-    },
-    "Optional": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Optional"
-          }
-        },
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nepovinné"
           }
         }
       }
@@ -2416,6 +2552,23 @@
         }
       }
     },
+    "Speaking over the agent stops it at once.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaking over the agent stops it at once."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Když mluvíte přes agenta, hned ho zastavíte."
+          }
+        }
+      }
+    },
     "Speaking…": {
       "extractionState": "manual",
       "localizations": {
@@ -2565,6 +2718,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Subagent"
+          }
+        }
+      }
+    },
+    "Subagent soul": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagent soul"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soul subagenta"
+          }
+        }
+      }
+    },
+    "Subagents at work: %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagents at work: %lld"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pracující subagenti: %lld"
           }
         }
       }
@@ -2875,6 +3062,23 @@
         }
       }
     },
+    "The agent stops once speech recognition writes your first word, so a cough or noise does not stop it. It takes a moment longer.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent stops once speech recognition writes your first word, so a cough or noise does not stop it. It takes a moment longer."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent se zastaví, až převod řeči na text zapíše vaše první slovo, takže ho nezastaví kašel ani hluk. Trvá to o chvilku déle."
+          }
+        }
+      }
+    },
     "The agent's only tools are the ones on these servers. Each profile chooses which of them it loads.": {
       "extractionState": "manual",
       "localizations": {
@@ -2926,19 +3130,19 @@
         }
       }
     },
-    "The main agent hands work to the subagent, and only the subagent uses the MCP tools.": {
+    "The main agent hands work to the subagent, and only the subagent uses the MCP tools. Each profile has its own subagent soul.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The main agent hands work to the subagent, and only the subagent uses the MCP tools."
+            "value": "The main agent hands work to the subagent, and only the subagent uses the MCP tools. Each profile has its own subagent soul."
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hlavní agent předává práci subagentovi a MCP nástroje používá jen subagent."
+            "value": "Hlavní agent předává práci subagentovi a MCP nástroje používá jen subagent. Každý profil má vlastní soul subagenta."
           }
         }
       }
@@ -2956,6 +3160,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "MCP nástroje používá přímo hlavní agent."
+          }
+        }
+      }
+    },
+    "The same levels for every model; the app sends each server what it understands. Model default sends nothing. A model that cannot switch thinking off gets its lowest level. Extra request parameters of a model take precedence.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The same levels for every model; the app sends each server what it understands. Model default sends nothing. A model that cannot switch thinking off gets its lowest level. Extra request parameters of a model take precedence."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stejné stupně pro všechny modely, aplikace každému serveru pošle to, čemu rozumí. Podle modelu nic neposílá. Model, který přemýšlení vypnout neumí, dostane nejnižší stupeň. Další parametry požadavku u modelu mají přednost."
           }
         }
       }
@@ -3381,6 +3602,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ID hlasu"
+          }
+        }
+      }
+    },
+    "When": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kdy"
           }
         }
       }

@@ -193,7 +193,21 @@ enum AgentSetup {
         return parts.joined(separator: "\n\n")
     }
 
+    /// Whether speech-to-text made a word of it. Markers such as [BLANK_AUDIO] or (music) are not words.
+    static func hasWords(_ text: String) -> Bool {
+        let bare = text.replacingOccurrences(of: #"\[[^\]]*\]|\([^)]*\)|\*[^*]*\*"#, with: " ", options: .regularExpression)
+        return bare.contains { $0.isLetter }
+    }
+
     static let delegateName = "delegate"
+
+    /// What `delegate` answers at once: the report comes later.
+    static let delegateStarted = "Started in the background. The report will come to you as a separate message when it is ready. Tell the user briefly that you are on it, and carry on with the conversation."
+
+    /// Reports of background work that came in, sent to the main agent as a message of their own.
+    static func backgroundReports(_ reports: [String]) -> String {
+        "Reports from subagents you started earlier in the background:\n\n" + reports.joined(separator: "\n\n") + "\n\nTell the user what they need to know from this."
+    }
 
     /// The one tool that is not from MCP: it does nothing itself, it only hands work to the subagent, whose tools are MCP's.
     /// `brief` lists only the names, for a model with little room.
@@ -201,7 +215,7 @@ enum AgentSetup {
         let list = tools.map { brief ? "- \($0.name)" : "- \($0.name): \($0.description.prefix(120))" }.joined(separator: "\n")
         return ToolDef(
             name: delegateName,
-            description: "Runs a subagent that has the tools below and returns its report as text. Use it for anything that needs outside information or an action. Give it a self-contained task containing only what the user asked for.\n\n\(list)",
+            description: "Starts a subagent in the background that has the tools below. It returns at once; the subagent's report comes to you later as a separate message, so the conversation can go on meanwhile. Use it for anything that needs outside information or an action. Give it a self-contained task containing only what the user asked for.\n\n\(list)",
             schema: ["type": "object", "properties": ["task": ["type": "string", "description": "The self-contained task."]], "required": ["task"]]
         )
     }

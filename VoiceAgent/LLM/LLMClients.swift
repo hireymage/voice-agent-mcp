@@ -6,7 +6,7 @@ struct OpenAIChatClient: LLMClient {
     let c: LLMConfig
     init(_ c: LLMConfig) { self.c = c }
 
-    func body(system: String, messages: [ChatMessage], tools: [ToolDef]) -> JSONValue {
+    func body(system: String, messages: [ChatMessage], tools: [ToolDef], thinking: JSONValue? = nil) -> JSONValue {
         var out: [JSONValue] = system.isEmpty ? [] : [["role": "system", "content": .string(system)]]
         for m in messages {
             switch m.role {
@@ -29,14 +29,17 @@ struct OpenAIChatClient: LLMClient {
                 ["type": "function", "function": ["name": .string($0.name), "description": .string($0.description), "parameters": $0.schema]]
             })])
         }
-        return b.merging(c.extra)
+        return b.merging(thinking).merging(c.extra)
     }
 
     func complete(system: String, messages: [ChatMessage], tools: [ToolDef], onText: @escaping @Sendable (String) -> Void) async throws -> LLMResponse {
         var headers: [String: String] = [:]
         if !c.apiKey.isEmpty { headers["Authorization"] = "Bearer \(c.apiKey)" }
-        let req = jsonRequest(try c.url("/chat/completions"), body: body(system: system, messages: messages, tools: tools), headers: headers)
-        return try await consume(sseData(req), onText: onText)
+        let url = try c.url("/chat/completions")
+        return try await c.firstAccepted { thinking in
+            let req = jsonRequest(url, body: body(system: system, messages: messages, tools: tools, thinking: thinking), headers: headers)
+            return try await consume(sseData(req), onText: onText)
+        }
     }
 
     func consume(_ stream: AsyncThrowingStream<(event: String?, json: JSONValue), Error>, onText: @escaping @Sendable (String) -> Void) async throws -> LLMResponse {
@@ -76,7 +79,7 @@ struct OpenAIResponsesClient: LLMClient {
     let c: LLMConfig
     init(_ c: LLMConfig) { self.c = c }
 
-    func body(system: String, messages: [ChatMessage], tools: [ToolDef]) -> JSONValue {
+    func body(system: String, messages: [ChatMessage], tools: [ToolDef], thinking: JSONValue? = nil) -> JSONValue {
         var input: [JSONValue] = []
         for m in messages {
             switch m.role {
@@ -97,14 +100,17 @@ struct OpenAIResponsesClient: LLMClient {
                 ["type": "function", "name": .string($0.name), "description": .string($0.description), "parameters": $0.schema]
             })])
         }
-        return b.merging(c.extra)
+        return b.merging(thinking).merging(c.extra)
     }
 
     func complete(system: String, messages: [ChatMessage], tools: [ToolDef], onText: @escaping @Sendable (String) -> Void) async throws -> LLMResponse {
         var headers: [String: String] = [:]
         if !c.apiKey.isEmpty { headers["Authorization"] = "Bearer \(c.apiKey)" }
-        let req = jsonRequest(try c.url("/responses"), body: body(system: system, messages: messages, tools: tools), headers: headers)
-        return try await consume(sseData(req), onText: onText)
+        let url = try c.url("/responses")
+        return try await c.firstAccepted { thinking in
+            let req = jsonRequest(url, body: body(system: system, messages: messages, tools: tools, thinking: thinking), headers: headers)
+            return try await consume(sseData(req), onText: onText)
+        }
     }
 
     func consume(_ stream: AsyncThrowingStream<(event: String?, json: JSONValue), Error>, onText: @escaping @Sendable (String) -> Void) async throws -> LLMResponse {
@@ -136,7 +142,7 @@ struct AnthropicClient: LLMClient {
     let c: LLMConfig
     init(_ c: LLMConfig) { self.c = c }
 
-    func body(system: String, messages: [ChatMessage], tools: [ToolDef]) -> JSONValue {
+    func body(system: String, messages: [ChatMessage], tools: [ToolDef], thinking: JSONValue? = nil) -> JSONValue {
         var out: [JSONValue] = []
         var pendingResults: [JSONValue] = []
         func flushResults() {
@@ -166,12 +172,15 @@ struct AnthropicClient: LLMClient {
                 ["name": .string($0.name), "description": .string($0.description), "input_schema": $0.schema]
             })])
         }
-        return b.merging(c.extra)
+        return b.merging(thinking).merging(c.extra)
     }
 
     func complete(system: String, messages: [ChatMessage], tools: [ToolDef], onText: @escaping @Sendable (String) -> Void) async throws -> LLMResponse {
-        let req = jsonRequest(try c.url(c.base.hasSuffix("/v1") ? "/messages" : "/v1/messages"), body: body(system: system, messages: messages, tools: tools), headers: ["x-api-key": c.apiKey, "anthropic-version": "2023-06-01"])
-        return try await consume(sseData(req), onText: onText)
+        let url = try c.url(c.base.hasSuffix("/v1") ? "/messages" : "/v1/messages")
+        return try await c.firstAccepted { thinking in
+            let req = jsonRequest(url, body: body(system: system, messages: messages, tools: tools, thinking: thinking), headers: ["x-api-key": c.apiKey, "anthropic-version": "2023-06-01"])
+            return try await consume(sseData(req), onText: onText)
+        }
     }
 
     func consume(_ stream: AsyncThrowingStream<(event: String?, json: JSONValue), Error>, onText: @escaping @Sendable (String) -> Void) async throws -> LLMResponse {
@@ -226,7 +235,7 @@ struct GeminiClient: LLMClient {
     let c: LLMConfig
     init(_ c: LLMConfig) { self.c = c }
 
-    func body(system: String, messages: [ChatMessage], tools: [ToolDef]) -> JSONValue {
+    func body(system: String, messages: [ChatMessage], tools: [ToolDef], thinking: JSONValue? = nil) -> JSONValue {
         var contents: [JSONValue] = []
         var results: [JSONValue] = []
         func flushResults() {
@@ -252,13 +261,16 @@ struct GeminiClient: LLMClient {
                 ["name": .string($0.name), "description": .string($0.description), "parametersJsonSchema": $0.schema]
             })]]])
         }
-        return b.merging(c.extra)
+        return b.merging(thinking).merging(c.extra)
     }
 
     func complete(system: String, messages: [ChatMessage], tools: [ToolDef], onText: @escaping @Sendable (String) -> Void) async throws -> LLMResponse {
         let model = c.model.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? c.model
-        let req = jsonRequest(try c.url("/models/\(model):streamGenerateContent?alt=sse"), body: body(system: system, messages: messages, tools: tools), headers: ["x-goog-api-key": c.apiKey])
-        return try await consume(sseData(req), onText: onText)
+        let url = try c.url("/models/\(model):streamGenerateContent?alt=sse")
+        return try await c.firstAccepted { thinking in
+            let req = jsonRequest(url, body: body(system: system, messages: messages, tools: tools, thinking: thinking), headers: ["x-goog-api-key": c.apiKey])
+            return try await consume(sseData(req), onText: onText)
+        }
     }
 
     func consume(_ stream: AsyncThrowingStream<(event: String?, json: JSONValue), Error>, onText: @escaping @Sendable (String) -> Void) async throws -> LLMResponse {

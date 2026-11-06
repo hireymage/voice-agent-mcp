@@ -7,11 +7,12 @@ The interface is in English and Czech.
 ## What it does
 
 - **Your own model:** OpenAI Chat Completions and Responses, Anthropic, Google Gemini, anything OpenAI-compatible (Ollama, LM Studio, vLLM and others), or Apple's on-device model on iPhones with Apple Intelligence. The main agent and a subagent can each use a different model.
-- **Natural conversation:** the app hears when you finish, reads the answer aloud sentence by sentence, and stops when you talk over it. Subagents can start looking things up while you are still speaking.
+- **Natural conversation:** the app hears when you finish, reads the answer aloud sentence by sentence, and stops when you talk over it, either at once or only after speech recognition writes your first word, so a cough or noise does not stop it. Subagents can start looking things up while you are still speaking.
+- **Subagents in the background:** the main agent hands a task to a subagent and carries on talking with you; the report comes in later and the agent tells you what matters. A small counter next to the state shows how many subagents are at work.
 - **Your own speech services:** Apple, OpenAI-compatible services, whisper.cpp and ElevenLabs for speech to text; Apple, OpenAI-compatible services, Piper and ElevenLabs for text to speech. Save as many services as you like and try each one in Settings.
 - **MCP tools:** HTTP (Streamable HTTP) servers with custom headers and `mcp.json` import. Any single tool can be turned off. Local stdio servers cannot run on an iPhone.
 - **iPhone tools:** calendar, reminders and contacts, each off until you turn it on.
-- **Profiles:** several agents, each with its own soul, MCP servers and spoken or text-only replies.
+- **Profiles:** several agents, each with its own soul, subagent soul, thinking level for the main agent and the subagent, MCP servers and spoken or text-only replies.
 
 ## Build it
 

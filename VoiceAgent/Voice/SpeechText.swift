@@ -210,6 +210,9 @@ final class PhraseDetector {
         preroll = []
     }
 
+    /// What has been heard of the phrase in progress, without ending it.
+    func current() -> [Int16]? { inSpeech ? phrase : nil }
+
     /// The phrase in progress when listening is turned off, if it had real speech in it.
     func finish() -> [Int16]? {
         defer { reset() }

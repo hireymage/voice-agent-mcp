@@ -233,6 +233,52 @@ final class LiveTests: XCTestCase {
         XCTAssertTrue(text.lowercased().contains("zkouška") || text.lowercased().contains("den"), text)
     }
 
+    /// Every level must be accepted by a real OpenAI-compatible server, with an answer and no thinking in it.
+    func testThinkingLevelsOnARealServer() async throws {
+        for level in Thinking.allCases {
+            let client = makeLLMClient(LLMConfig(api: .openAIChat, baseURL: try env("LIVE_LLM_URL"), apiKey: "", model: try env("LIVE_LLM_MODEL"), extra: nil, thinking: level))
+            let r = try await client.complete(system: "", messages: [.user("What is 17*23? Answer with the number only.")], tools: [], onText: { _ in })
+            print("LIVE thinking \(level):", r.text)
+            XCTAssertTrue(r.text.contains("391"), "\(level): \(r.text)")
+            XCTAssertLessThan(r.text.count, 40, "\(level): the answer must not carry the model's thinking")
+        }
+    }
+
+    /// Interrupting on the first word: the start of real speech gives a word, noise does not.
+    func testFirstWordFromTheStartOfSpeech() async throws {
+        var tts = TTSSettings()
+        tts.kind = .piper
+        tts.url = try env("LIVE_PIPER_URL")
+        tts.voice = try env("LIVE_PIPER_VOICE")
+        let clip = try await makeTTS(tts).synthesize("Počkej, zastav to, mám jinou otázku.")
+        let src = clip.buffer.floatChannelData![0]
+        let pcm = stride(from: 0, to: Int(clip.buffer.frameLength), by: 3).map { Int16(max(-1, min(1, src[$0])) * 32767) }
+        var stt = STTSettings()
+        stt.kind = .whisperCpp
+        stt.url = try env("LIVE_WHISPER_URL")
+        stt.language = "cs"
+        let whisper = makeSTT(stt)
+        var firstWordAt: Double?
+        for seconds in [0.5, 1.0, 1.5] {
+            let part = Array(pcm.prefix(Int(seconds * 16000)))
+            let start = Date()
+            let text = try await whisper.transcribe(wav: wavData(part, sampleRate: 16000))
+            let took = Date().timeIntervalSince(start)
+            print(String(format: "LIVE first %.1f s of speech -> %@ (whisper %.2f s, word: %@, speech %.2f)", seconds, text, took, AgentSetup.hasWords(text) ? "yes" : "no", SpeechCheck.confidence(part)))
+            if firstWordAt == nil, AgentSetup.hasWords(text) { firstWordAt = seconds }
+            XCTAssertGreaterThanOrEqual(SpeechCheck.confidence(part), 0.5, "speech must sound like speech")
+        }
+        XCTAssertNotNil(firstWordAt, "1.5 s of speech must give a word")
+        var noise = SystemRandomNumberGenerator()
+        let hiss = (0..<16000).map { _ in Int16.random(in: -600...600, using: &noise) }
+        let fromNoise = try await whisper.transcribe(wav: wavData(hiss, sampleRate: 16000))
+        let loud = hiss.map { $0 * 20 }
+        print(String(format: "LIVE noise -> %@ (speech %.2f, loud noise speech %.2f, silence speech %.2f)", fromNoise, SpeechCheck.confidence(hiss), SpeechCheck.confidence(loud), SpeechCheck.confidence([Int16](repeating: 0, count: 16000))))
+        for sound in [hiss, loud, [Int16](repeating: 0, count: 16000)] {
+            XCTAssertLessThan(SpeechCheck.confidence(sound), 0.5, "noise must not count as speech, whatever Whisper writes for it")
+        }
+    }
+
     func testPiperSentenceEndsInSilence() async throws {
         var tts = TTSSettings()
         tts.kind = .piper

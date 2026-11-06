@@ -86,12 +86,32 @@ struct SoulSettings: Codable, Hashable {
     var loadViaMCP = false
 }
 
+/// How much a model thinks before it answers. One scale for every server; each API gets its own parameters.
+enum Thinking: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// Nothing is sent and the model does what it does by default.
+    case model, off, low, medium, high
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .model: tr("Model default")
+        case .off: tr("Off")
+        case .low: tr("Low")
+        case .medium: tr("Medium")
+        case .high: tr("High")
+        }
+    }
+}
+
 /// Who the agent is at the moment: its soul, the MCP servers it loads and whether it answers aloud.
 /// Models and speech providers are shared by all profiles.
 struct AgentProfile: Identifiable, Codable, Hashable {
     var id = UUID()
     var name = ""
     var soul = SoulSettings()
+    /// The subagent's own soul, set the same way as the main agent's.
+    var subagentSoul = SoulSettings()
+    var mainThinking = Thinking.model
+    var subagentThinking = Thinking.model
     var speakReplies = true
     var mcpServers: [UUID] = []
     /// The agent greets first, so that everything is loaded before the user says anything.
@@ -108,6 +128,9 @@ extension AgentProfile {
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         soul = try c.decodeIfPresent(SoulSettings.self, forKey: .soul) ?? SoulSettings()
+        subagentSoul = try c.decodeIfPresent(SoulSettings.self, forKey: .subagentSoul) ?? SoulSettings()
+        mainThinking = try c.decodeIfPresent(Thinking.self, forKey: .mainThinking) ?? .model
+        subagentThinking = try c.decodeIfPresent(Thinking.self, forKey: .subagentThinking) ?? .model
         speakReplies = try c.decodeIfPresent(Bool.self, forKey: .speakReplies) ?? true
         mcpServers = try c.decodeIfPresent([UUID].self, forKey: .mcpServers) ?? []
         alwaysReady = try c.decodeIfPresent(Bool.self, forKey: .alwaysReady) ?? true
@@ -229,9 +252,22 @@ struct TTSSettings: SpeechService, Codable {
 
 struct VoiceSettings: Codable, Hashable {
     var bargeIn = true
+    /// Interrupt only once speech-to-text has made a word of what was heard, not at the first sound.
+    var bargeInOnWord = false
     var silenceMs = 800.0
     /// 0…1; higher hears quieter speech.
     var sensitivity = 0.5
+}
+
+extension VoiceSettings {
+    /// Fields added in later versions fall back to their defaults instead of losing the settings.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        bargeIn = try c.decodeIfPresent(Bool.self, forKey: .bargeIn) ?? true
+        bargeInOnWord = try c.decodeIfPresent(Bool.self, forKey: .bargeInOnWord) ?? false
+        silenceMs = try c.decodeIfPresent(Double.self, forKey: .silenceMs) ?? 800
+        sensitivity = try c.decodeIfPresent(Double.self, forKey: .sensitivity) ?? 0.5
+    }
 }
 
 struct AppSettings: Codable, Hashable {
@@ -239,6 +275,7 @@ struct AppSettings: Codable, Hashable {
     var main = ModelChoice()
     var subagentEnabled = true
     var subagent = ModelChoice()
+    /// Only read from older settings: these instructions used to be shared, each profile now has its own subagent soul.
     var subagentInstructions = ""
     var mcp: [MCPServer] = []
     var profiles = [AgentProfile(name: tr("Default"))]
@@ -306,6 +343,11 @@ struct AppSettings: Codable, Hashable {
         }
         let active = try c.decodeIfPresent(UUID.self, forKey: .activeProfileID)
         activeProfileID = profiles.first { $0.id == active }?.id ?? profiles[0].id
+        // The shared subagent instructions applied to every profile, so every profile gets them.
+        if !subagentInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            for i in profiles.indices where profiles[i].subagentSoul.text.isEmpty { profiles[i].subagentSoul.text = subagentInstructions }
+            subagentInstructions = ""
+        }
     }
 
     func server(_ id: UUID?) -> LLMServer? { servers.first { $0.id == id } }

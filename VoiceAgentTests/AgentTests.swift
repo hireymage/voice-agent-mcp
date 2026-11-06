@@ -26,10 +26,14 @@ final class StubProtocol: URLProtocol {
         Self.bodies.append(body)
         var r = request
         r.httpBody = body
-        let (status, headers, data) = Self.handler!(r)
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        // Answered on its own thread, like real servers: a slow model must not hold up speech-to-text.
+        let handler = Self.handler!
+        DispatchQueue.global().async { [self] in
+            let (status, headers, data) = handler(r)
+            client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        }
     }
 
     static func session() -> URLSession {
@@ -594,6 +598,17 @@ final class GreetingTests: XCTestCase {
         XCTAssertTrue(s.profile.alwaysReady)
     }
 
+    func testSharedSubagentInstructionsMoveIntoEveryProfile() throws {
+        let old = #"{"subagentInstructions":"Answer briefly.","profiles":[{"name":"A"},{"name":"B","subagentSoul":{"text":"Own","loadViaMCP":true}}]}"#
+        let s = try JSONDecoder().decode(AppSettings.self, from: Data(old.utf8))
+        XCTAssertEqual(s.profiles[0].subagentSoul.text, "Answer briefly.")
+        XCTAssertEqual(s.profiles[1].subagentSoul.text, "Own", "a profile's own subagent soul stays")
+        XCTAssertTrue(s.profiles[1].subagentSoul.loadViaMCP)
+        XCTAssertEqual(s.subagentInstructions, "", "copied once, so clearing a profile later is not undone")
+        let again = try JSONDecoder().decode(AppSettings.self, from: try JSONEncoder().encode(s))
+        XCTAssertEqual(again.profiles[0].subagentSoul.text, "Answer briefly.")
+    }
+
     @MainActor func testNoModelMeansNoGreeting() {
         let store = SettingsStore(defaults: UserDefaults(suiteName: "tests.\(UUID().uuidString)")!)
         let conversation = ConversationModel(store: store)
@@ -629,7 +644,7 @@ final class SpokenTextTests: XCTestCase {
         StubProtocol.bodies = []
     }
 
-    @MainActor private func conversation(heard: [String], replies: [String]) -> ConversationModel {
+    @MainActor private func conversation(heard: [String], replies: [String], interruptOnWord: Bool = false, speech: Double = 1, withTools: Bool = false) -> ConversationModel {
         final class Queue: @unchecked Sendable {
             var heard: [String], replies: [String]
             init(heard: [String], replies: [String]) { self.heard = heard; self.replies = replies }
@@ -640,7 +655,22 @@ final class SpokenTextTests: XCTestCase {
                 Thread.sleep(forTimeInterval: 0.2)
                 return (200, ["Content-Type": "application/json"], Data("{\"text\":\"\(queue.heard.removeFirst())\"}".utf8))
             }
-            let reply = queue.replies.removeFirst()
+            if String(decoding: r.httpBody ?? Data(), as: UTF8.self).contains("You listen to a user of a voice assistant") {
+                return (200, ["Content-Type": "text/event-stream"], sse([#"{"choices":[{"index":0,"delta":{"content":"{\"tasks\":[{\"task\":\"look up the weather now\"}]}"}}]}"#, "[DONE]"]))
+            }
+            if String(decoding: r.httpBody ?? Data(), as: UTF8.self).contains("You are a subagent") {
+                Thread.sleep(forTimeInterval: 2)
+                return (200, ["Content-Type": "text/event-stream"], sse([#"{"choices":[{"index":0,"delta":{"content":"Found it."}}]}"#, "[DONE]"]))
+            }
+            var reply = queue.replies.removeFirst()
+            if reply == "DELEGATE" {
+                let call = #"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"delegate","arguments":"{\"task\":\"look it up\"}"}}]}}]}"#
+                return (200, ["Content-Type": "text/event-stream"], sse([call, "[DONE]"]))
+            }
+            if reply.hasPrefix("SLOW:") {
+                reply.removeFirst(5)
+                Thread.sleep(forTimeInterval: 2.5)
+            }
             if reply == "TOO_LONG" { return (400, ["Content-Type": "application/json"], Data(#"{"error":{"code":"context_length_exceeded","message":"This model's maximum context length is 10 tokens."}}"#.utf8)) }
             let delta = #"{"choices":[{"index":0,"delta":{"content":"\#(reply)"}}]}"#
             return (200, ["Content-Type": "text/event-stream"], sse([delta, "[DONE]"]))
@@ -654,8 +684,15 @@ final class SpokenTextTests: XCTestCase {
         settings.stt.url = "http://127.0.0.1:9/inference"
         settings.profiles[0].speakReplies = false
         settings.dataNoticeAccepted = true
+        settings.voice.bargeInOnWord = interruptOnWord
+        if withTools {
+            settings.phoneTools = [PhoneTools.all[0].name]
+            settings.profiles[0].mcpServers = [PhoneTools.serverID]
+        }
         store.settings = settings
-        return ConversationModel(store: store)
+        let c = ConversationModel(store: store)
+        c.speechConfidence = { _ in speech }
+        return c
     }
 
     @MainActor private func waitForRepliesCount(_ count: Int, in c: ConversationModel) async {
@@ -721,6 +758,138 @@ final class SpokenTextTests: XCTestCase {
         await waitForRepliesCount(2, in: c)
         XCTAssertEqual(c.items.filter { $0.kind == .user }.map(\.text), ["Find that", "and the rest."])
         XCTAssertTrue(lastPrompt.contains("Find that and the rest."))
+    }
+
+    @MainActor func testWithInterruptOnWordANoiseDoesNotStopTheAgent() async throws {
+        let c = conversation(heard: ["[BLANK_AUDIO]"], replies: ["SLOW:Answer."], interruptOnWord: true)
+        c.send("Question")
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(c.isTurnRunning)
+        c.hearForTesting(.started)
+        c.hearForTesting(.ended(pcm))
+        try await Task.sleep(for: .milliseconds(1200))
+        XCTAssertTrue(c.isTurnRunning, "a sound without a word does not stop the agent")
+        await waitForRepliesCount(1, in: c)
+        XCTAssertEqual(c.items.filter { $0.kind == .user }.map(\.text), ["Question"])
+        XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text), ["Answer."])
+    }
+
+    @MainActor func testWithInterruptOnWordTheFirstWordStopsTheAgentAndIsSent() async throws {
+        let c = conversation(heard: ["Stop that."], replies: ["SLOW:Long answer.", "OK."], interruptOnWord: true)
+        c.send("Question")
+        try await Task.sleep(for: .milliseconds(300))
+        c.hearForTesting(.started)
+        XCTAssertTrue(c.isTurnRunning, "nothing stops before a word is written")
+        c.hearForTesting(.ended(pcm))
+        await waitForRepliesCount(2, in: c)
+        XCTAssertEqual(c.items.filter { $0.kind == .user }.map(\.text), ["Question", "Stop that."])
+        XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text).last, "OK.")
+        XCTAssertTrue(lastPrompt.contains("Stop that."))
+    }
+
+    @MainActor func testWithInterruptOnWordWhisperWritingWordsForNoiseDoesNotStopTheAgent() async throws {
+        let c = conversation(heard: ["Titulky vytvořil JohnyX."], replies: ["SLOW:Answer."], interruptOnWord: true, speech: 0.2)
+        c.send("Question")
+        try await Task.sleep(for: .milliseconds(300))
+        c.hearForTesting(.started)
+        c.hearForTesting(.ended(pcm))
+        await waitForRepliesCount(1, in: c)
+        XCTAssertEqual(c.items.filter { $0.kind == .user }.map(\.text), ["Question"])
+        XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text), ["Answer."])
+    }
+
+    @MainActor private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<120 where !condition() { try? await Task.sleep(for: .milliseconds(25)) }
+    }
+
+    @MainActor func testSpeechWhileTheAgentWorksWaitsForItsTurn() async throws {
+        let c = conversation(heard: ["And the weather."], replies: ["SLOW:Homelab answer.", "Weather answer."])
+        c.send("Tell me about the homelab.")
+        try await Task.sleep(for: .milliseconds(300))
+        c.hearForTesting(.started)
+        XCTAssertTrue(c.isTurnRunning, "speaking before the agent says anything does not stop it")
+        c.hearForTesting(.ended(pcm))
+        await waitForRepliesCount(2, in: c)
+        await waitUntil { !c.isTurnRunning && c.items.filter { $0.kind == .assistant }.count == 2 }
+        XCTAssertEqual(c.items.filter { $0.kind == .user }.map(\.text), ["Tell me about the homelab.", "And the weather."])
+        XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text), ["Homelab answer.", "Weather answer."])
+    }
+
+    @MainActor func testAfterStopTheUnansweredMessageGoesWithTheNext() async throws {
+        let c = conversation(heard: [], replies: ["SLOW:Never shown.", "Both answered."])
+        c.send("Tell me about the homelab.")
+        try await Task.sleep(for: .milliseconds(300))
+        c.interrupt()
+        c.send("And the weather.")
+        await waitForRepliesCount(2, in: c)
+        await waitUntil { !c.isTurnRunning }
+        XCTAssertTrue(lastPrompt.contains(#"Tell me about the homelab.\n\nAnd the weather."#), "one message with both: \(lastPrompt.suffix(400))")
+    }
+
+    @MainActor func testAnAnsweredMessageStaysItsOwn() async {
+        let c = conversation(heard: [], replies: ["First answer.", "Second answer."])
+        c.send("First")
+        await waitForRepliesCount(1, in: c)
+        c.send("Second")
+        await waitForRepliesCount(2, in: c)
+        XCTAssertFalse(lastPrompt.contains(#"First\n\nSecond"#))
+        XCTAssertTrue(lastPrompt.contains("First answer."))
+    }
+
+    @MainActor func testTheAgentTalksWhileASubagentWorksAndTellsTheReportLater() async {
+        let c = conversation(heard: [], replies: ["DELEGATE", "On it.", "Fine, thanks.", "Here is what I found."], withTools: true)
+        c.send("Find it in my memory.")
+        await waitUntil { !c.isTurnRunning && c.items.contains { $0.text == "On it." } }
+        XCTAssertEqual(c.activeSubagents, 1, "the subagent works in the background")
+        XCTAssertFalse(c.isTurnRunning, "the agent does not wait for it")
+        c.send("How are you?")
+        await waitUntil { c.items.contains { $0.text == "Fine, thanks." } }
+        XCTAssertEqual(c.activeSubagents, 1, "chatting meanwhile, the subagent still works")
+        await waitUntil { c.items.contains { $0.text == "Here is what I found." } && !c.isTurnRunning }
+        XCTAssertEqual(c.activeSubagents, 0)
+        XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text), ["On it.", "Fine, thanks.", "Here is what I found."])
+        XCTAssertEqual(c.items.filter { $0.kind == .user }.map(\.text), ["Find it in my memory.", "How are you?"], "the report is not a bubble of the user's")
+        XCTAssertTrue(lastPrompt.contains("Found it."), "the report goes to the main agent")
+    }
+
+    @MainActor func testStopEndsTheAnswerNotTheBackgroundWork() async {
+        let c = conversation(heard: [], replies: ["DELEGATE", "On it.", "Report told."], withTools: true)
+        c.send("Find it.")
+        await waitUntil { c.activeSubagents == 1 }
+        c.interrupt()
+        XCTAssertEqual(c.activeSubagents, 1, "Stop ends what the agent says; the background work goes on")
+        c.newConversation()
+        XCTAssertEqual(c.activeSubagents, 0, "a new conversation stops it")
+    }
+
+    @MainActor func testAMessageSentWhileTheAgentWorksWaitsAndGetsItsOwnSubagent() async throws {
+        let c = conversation(heard: [], replies: ["SLOW:Homelab answer.", "Weather answer."], withTools: true)
+        c.send("Tell me about the homelab.")
+        try await Task.sleep(for: .milliseconds(300))
+        c.send("And the weather.")
+        XCTAssertTrue(c.isTurnRunning, "the first is not stopped")
+        XCTAssertEqual(c.items.filter { $0.kind == .user }.map(\.text), ["Tell me about the homelab.", "And the weather."], "the second message shows at once")
+        await waitUntil { c.activeSubagents == 1 }
+        XCTAssertEqual(c.activeSubagents, 1, "the waiting message has its own subagent already")
+        await waitUntil { !c.isTurnRunning && c.items.filter { $0.kind == .assistant }.count == 2 }
+        XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text), ["Homelab answer.", "Weather answer."], "both answered, in order")
+        XCTAssertTrue(lastPrompt.contains("Homelab answer."))
+        XCTAssertTrue(lastPrompt.contains("Found it."), "with what its own subagent found")
+    }
+
+    func testOnlyRealWordsCount() {
+        XCTAssertFalse(AgentSetup.hasWords(""))
+        XCTAssertFalse(AgentSetup.hasWords(" [BLANK_AUDIO] "))
+        XCTAssertFalse(AgentSetup.hasWords("(music) *cough* ..."))
+        XCTAssertTrue(AgentSetup.hasWords("Stůj"))
+        XCTAssertTrue(AgentSetup.hasWords("[noise] no"))
+    }
+
+    func testOlderVoiceSettingsKeepWorking() throws {
+        let v = try JSONDecoder().decode(VoiceSettings.self, from: Data(#"{"bargeIn":false,"silenceMs":900,"sensitivity":0.4}"#.utf8))
+        XCTAssertFalse(v.bargeIn)
+        XCTAssertFalse(v.bargeInOnWord)
+        XCTAssertEqual(v.silenceMs, 900)
     }
 }
 
@@ -1034,5 +1203,72 @@ final class LiveWorkTests: XCTestCase {
 
     func testTheSettingIsOnForOldSettings() throws {
         XCTAssertTrue(try JSONDecoder().decode(AppSettings.self, from: Data("{}".utf8)).workWhileTalking)
+    }
+}
+
+final class ThinkingTests: XCTestCase {
+    private func config(_ api: LLMAPI, _ thinking: Thinking, base: String = "http://host:11434/v1", model: String = "m") -> LLMConfig {
+        LLMConfig(api: api, baseURL: base, apiKey: "", model: model, extra: nil, thinking: thinking)
+    }
+
+    func testModelDefaultAndAppleSendNothing() {
+        XCTAssertEqual(Thinking.model.variants(api: .anthropic, model: "m", base: "b"), [nil])
+        XCTAssertEqual(Thinking.high.variants(api: .apple, model: "on-device", base: ""), [nil])
+    }
+
+    func testEachAPIGetsItsOwnParameters() {
+        XCTAssertEqual(Thinking.low.variants(api: .openAIChat, model: "m", base: "https://api.openai.com/v1"), [["reasoning_effort": "low"]])
+        XCTAssertEqual(Thinking.off.variants(api: .openAIChat, model: "m", base: "https://api.openai.com/v1").count, 3, "none, then minimal, then low")
+        XCTAssertEqual(Thinking.off.variants(api: .openAIChat, model: "m", base: "http://10.0.0.2:11434/v1"), [["chat_template_kwargs": ["enable_thinking": false]]])
+        XCTAssertEqual(Thinking.high.variants(api: .openAIResponses, model: "m", base: ""), [["reasoning": ["effort": "high"]]])
+        let claude = Thinking.medium.variants(api: .anthropic, model: "m", base: "")
+        XCTAssertEqual(claude.first, ["thinking": ["type": "adaptive"], "output_config": ["effort": "medium"]])
+        XCTAssertEqual(claude.last??["max_tokens"]?.int, 8192 + 8192, "an older model's budget needs room under max_tokens")
+        XCTAssertEqual(Thinking.off.variants(api: .gemini, model: "gemini-2.5-flash", base: "").first??["generationConfig"]?["thinkingConfig"]?["thinkingBudget"]?.int, 0)
+        XCTAssertEqual(Thinking.low.variants(api: .gemini, model: "gemini-3-pro", base: "").first??["generationConfig"]?["thinkingConfig"]?["thinkingLevel"]?.string, "low")
+    }
+
+    func testExtraParametersOverrideThinking() {
+        let c = OpenAIChatClient(LLMConfig(api: .openAIChat, baseURL: "u", apiKey: "", model: "m", extra: ["reasoning_effort": "medium"], thinking: .high))
+        XCTAssertEqual(c.body(system: "", messages: [.user("hi")], tools: [], thinking: ["reasoning_effort": "high"])["reasoning_effort"]?.string, "medium")
+    }
+
+    func testARefusedVariantFallsBackToTheNext() async throws {
+        var tried: [JSONValue?] = []
+        let r = try await config(.anthropic, .off).firstAccepted { variant in
+            tried.append(variant)
+            if tried.count < 3 { throw HTTPFailure(status: 400, body: "thinking.type: not supported for this model") }
+            return LLMResponse(text: "ok")
+        }
+        XCTAssertEqual(r.text, "ok")
+        XCTAssertEqual(tried.last, ["output_config": ["effort": "low"]])
+    }
+
+    func testAllRefusedShowsTheFirstAnswerAndContextLimitIsNotRetried() async {
+        var tried = 0
+        do {
+            _ = try await config(.openAIChat, .off, base: "https://api.openai.com/v1").firstAccepted { _ in
+                tried += 1
+                throw HTTPFailure(status: 400, body: "answer \(tried)")
+            }
+            XCTFail("should throw")
+        } catch {
+            XCTAssertEqual((error as? HTTPFailure)?.body, "answer 1")
+        }
+        XCTAssertEqual(tried, 3)
+        tried = 0
+        do {
+            _ = try await config(.openAIChat, .off, base: "https://api.openai.com/v1").firstAccepted { _ in
+                tried += 1
+                throw HTTPFailure(status: 400, body: "maximum context length exceeded")
+            }
+        } catch {}
+        XCTAssertEqual(tried, 1, "a too long conversation is not a refused parameter")
+    }
+
+    func testOlderProfilesUseTheModelDefault() throws {
+        let s = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"profiles":[{"name":"A"}]}"#.utf8))
+        XCTAssertEqual(s.profile.mainThinking, .model)
+        XCTAssertEqual(s.profile.subagentThinking, .model)
     }
 }
