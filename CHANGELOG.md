@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The microphone did not start on a Mac** running the iPhone app (errors -10875, then -66628). Echo cancellation on a Mac refuses to start while playback goes through the main mixer; there the player now goes straight to the output, so the Mac keeps echo cancellation. If it still fails, the app waits half a second for macOS to rebuild its audio device and starts without it.
+
+### Changed
+
+- **"This device" instead of "iPhone"**, since the app also runs on a Mac and an iPad: the built-in tools in Settings and in profiles, Apple's model, speech recognition and voice, error messages and the tool descriptions for the model. The built-in tools are named `device__…` instead of `iphone__…`. A saved model still called "Apple (on this iPhone)" is renamed; a name you wrote yourself stays.
+
+### Tests
+
+- `MacProbeTests`, run only on a Mac with the destination My Mac (Designed for iPad): the microphone starts with echo cancellation, and Apple speech recognition writes Czech speech.
+
 ## 1.26.45
 
 Version numbers now follow the date: `1.year.week`, build `day.hour` (see `set-version.sh`).

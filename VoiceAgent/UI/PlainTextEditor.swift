@@ -93,7 +93,7 @@ struct MultilineField: View {
     }
 }
 
-/// iPhone keyboards have no key that puts them away: a tap anywhere that is not a text box does, on every screen
+/// Phone keyboards have no key that puts them away: a tap anywhere that is not a text box does, on every screen
 /// and sheet of the window. The tap still reaches what was tapped.
 struct KeyboardDismissal: UIViewRepresentable {
     func makeUIView(context: Context) -> Installer { Installer() }

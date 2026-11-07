@@ -72,7 +72,7 @@ private struct DataNoticeView: View {
             Image(systemName: "hand.raised.fill").font(.largeTitle).foregroundStyle(.tint)
             Text("Your data goes to the services you choose").font(.title2.bold())
             Text("Voice Agent has no server of its own. What you type or say, and what your tools return, is sent only to the AI model, speech and MCP services you set up, under their own privacy terms.")
-            Text("Nothing goes to an AI service until you add one. Apple speech recognition, if you use it, follows Apple's terms. API keys stay in the Keychain on this iPhone.")
+            Text("Nothing goes to an AI service until you add one. Apple speech recognition, if you use it, follows Apple's terms. API keys stay in the Keychain on this device.")
             Spacer()
             Button(action: accept) {
                 Text("I understand").frame(maxWidth: .infinity)

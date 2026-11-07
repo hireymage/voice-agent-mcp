@@ -22,7 +22,7 @@ enum CarVoiceState: String, CaseIterable {
         case .listening: (title, symbol) = (tr("Listening"), "waveform")
         case .thinking: (title, symbol) = (tr("Thinking"), "ellipsis")
         case .speaking: (title, symbol) = (tr("Speaking"), "speaker.wave.2.fill")
-        case .problem: (title, symbol) = (tr("Problem, details on iPhone"), "exclamationmark.triangle.fill")
+        case .problem: (title, symbol) = (tr("Problem, details in the app"), "exclamationmark.triangle.fill")
         }
         let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 80))
         return CPVoiceControlState(identifier: rawValue, titleVariants: [title], image: image, repeats: false)

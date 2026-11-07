@@ -609,6 +609,13 @@ final class GreetingTests: XCTestCase {
         XCTAssertEqual(again.profiles[0].subagentSoul.text, "Answer briefly.")
     }
 
+    func testApplesModelIsNoLongerNamedAfterTheIPhone() throws {
+        let old = #"{"servers":[{"id":"8C0F69B7-B350-4C84-9B43-B48781C6CDC1","name":"Apple (v tomto iPhonu)","api":"apple","baseURL":""},{"id":"8C0F69B7-B350-4C84-9B43-B48781C6CDC2","name":"My iPhone model","api":"apple","baseURL":""}]}"#
+        let s = try JSONDecoder().decode(AppSettings.self, from: Data(old.utf8))
+        XCTAssertEqual(s.servers[0].name, tr("Apple (on this device)"))
+        XCTAssertEqual(s.servers[1].name, "My iPhone model", "a name the user wrote stays")
+    }
+
     @MainActor func testNoModelMeansNoGreeting() {
         let store = SettingsStore(defaults: UserDefaults(suiteName: "tests.\(UUID().uuidString)")!)
         let conversation = ConversationModel(store: store)
@@ -1034,10 +1041,10 @@ final class ReleaseTests: XCTestCase {
         XCTAssertEqual(tr("Settings"), "Nastavení")
         XCTAssertEqual(tr("Connected. Models: %d.", 3), "Připojeno. Počet modelů: 3.")
         XCTAssertEqual(AppError("Invalid URL.").errorDescription, "Neplatná URL.")
-        XCTAssertEqual(STTKind.apple.label, "Apple (v tomto iPhonu)")
+        XCTAssertEqual(STTKind.apple.label, "Apple (v tomto zařízení)")
         Localizer.use(.english)
         XCTAssertEqual(tr("Settings"), "Settings")
-        XCTAssertEqual(STTKind.apple.label, "Apple (on this iPhone)")
+        XCTAssertEqual(STTKind.apple.label, "Apple (on this device)")
     }
 
     func testSpeechFollowsTheChosenLanguage() {
@@ -1071,7 +1078,7 @@ final class ReleaseTests: XCTestCase {
 final class PhoneToolsTests: XCTestCase {
     func testAToolExistsForTheAgentOnlyWhenTurnedOn() {
         XCTAssertTrue(PhoneTools.agentTools(enabled: []).isEmpty)
-        XCTAssertEqual(PhoneTools.agentTools(enabled: ["list_events", "gone"]).map(\.def.name), ["iphone__list_events"])
+        XCTAssertEqual(PhoneTools.agentTools(enabled: ["list_events", "gone"]).map(\.def.name), ["device__list_events"])
     }
 
     func testAProfileGetsThemOnlyWithTheIPhoneSwitchedOn() throws {

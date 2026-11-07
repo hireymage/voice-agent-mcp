@@ -101,6 +101,11 @@ final class AudioIO {
     private var carry: [Float] = []
     private var observers: [NSObjectProtocol] = []
     private var configObserver: NSObjectProtocol?
+    /// How the microphone is set up, best first. A way that kept the engine from starting is not tried again.
+    /// On a Mac running the iPhone app, voice processing starts only with the player wired straight to the output.
+    enum MicSetup { case voiceProcessing, voiceProcessingDirect, plain }
+    private(set) var micSetups: [MicSetup] = ProcessInfo.processInfo.isiOSAppOnMac
+        ? [.voiceProcessingDirect, .plain] : [.voiceProcessing, .voiceProcessingDirect, .plain]
 
     init() {
         let center = NotificationCenter.default
@@ -148,11 +153,30 @@ final class AudioIO {
             try session.setCategory(.playback, mode: .spokenAudio)
         }
         try session.setActive(true)
+        guard mic else { return try startEngine(mic: false, setup: .plain) }
+        for (i, setup) in micSetups.enumerated() {
+            do {
+                try startEngine(mic: true, setup: setup)
+                micSetups = Array(micSetups[i...])
+                return
+            } catch where i < micSetups.count - 1 {
+                // The device rebuilds its audio route after a failed start; starting again at once fails with -66628.
+                stop()
+                Thread.sleep(forTimeInterval: 0.5)
+            }
+        }
+    }
 
+    private func startEngine(mic: Bool, setup: MicSetup) throws {
         let engine = AVAudioEngine()
-        if mic { try? engine.inputNode.setVoiceProcessingEnabled(true) }
+        // Held at once, so that stop() takes the player and the tap back from an engine that fails to start.
+        self.engine = engine
+        if mic, setup != .plain { try? engine.inputNode.setVoiceProcessingEnabled(true) }
         engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: AudioFormats.playback)
+        // Voice processing on a Mac refuses to start (-10875, "client-side input and output formats do not match")
+        // while the main mixer feeds the output; the player going straight to the output starts.
+        let direct = mic && setup == .voiceProcessingDirect
+        engine.connect(player, to: direct ? engine.outputNode : engine.mainMixerNode, format: AudioFormats.playback)
         if mic {
             let input = engine.inputNode
             let format = input.outputFormat(forBus: 0)
@@ -170,7 +194,6 @@ final class AudioIO {
         engine.prepare()
         try engine.start()
         player.play()
-        self.engine = engine
         warmUp()
     }
 
