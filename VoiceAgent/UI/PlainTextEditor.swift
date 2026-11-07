@@ -9,9 +9,13 @@ struct PlainTextEditor: UIViewRepresentable {
     var literal = false
     /// When set, the box grows with its text between these line counts and then scrolls.
     var lines: ClosedRange<Int>?
+    /// When set, Return on a hardware keyboard (a Mac, an iPad keyboard) calls this and Shift-Return starts a new line.
+    /// The on-screen keyboard has no Shift-Return, so its Return key still starts a new line.
+    var onSubmit: (() -> Void)?
 
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+        let view = SubmittingTextView()
+        view.onSubmit = onSubmit
         view.delegate = context.coordinator
         view.backgroundColor = .clear
         view.adjustsFontForContentSizeCategory = true
@@ -44,6 +48,7 @@ struct PlainTextEditor: UIViewRepresentable {
     func updateUIView(_ view: UITextView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        (view as? SubmittingTextView)?.onSubmit = onSubmit
         if view.text == text {
             coordinator.sent.removeAll()
             return
@@ -73,15 +78,38 @@ struct PlainTextEditor: UIViewRepresentable {
     }
 }
 
+/// Return sends and Shift-Return starts a new line, for hardware keyboards only: key commands never fire for the
+/// on-screen keyboard.
+final class SubmittingTextView: UITextView {
+    var onSubmit: (() -> Void)?
+
+    override var keyCommands: [UIKeyCommand]? {
+        guard onSubmit != nil else { return super.keyCommands }
+        let send = UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(submit))
+        let newLine = UIKeyCommand(input: "\r", modifierFlags: .shift, action: #selector(insertNewLine))
+        for command in [send, newLine] { command.wantsPriorityOverSystemBehavior = true }
+        return [send, newLine] + (super.keyCommands ?? [])
+    }
+
+    @objc private func submit() {
+        // Return that finishes a word being composed (accents, other scripts) only finishes it.
+        if markedTextRange != nil { unmarkText(); return }
+        onSubmit?()
+    }
+
+    @objc private func insertNewLine() { insertText("\n") }
+}
+
 /// A box that grows with its text, with a placeholder, in place of `TextField(axis: .vertical)`, which loses the cursor the same way.
 struct MultilineField: View {
     let title: LocalizedStringKey
     @Binding var text: String
     var lines: ClosedRange<Int> = 1...4
     var literal = false
+    var onSubmit: (() -> Void)?
 
     var body: some View {
-        PlainTextEditor(text: $text, literal: literal, lines: lines)
+        PlainTextEditor(text: $text, literal: literal, lines: lines, onSubmit: onSubmit)
             .overlay(alignment: .topLeading) {
                 if text.isEmpty {
                     Text(title)

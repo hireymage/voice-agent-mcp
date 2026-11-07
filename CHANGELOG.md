@@ -2,17 +2,28 @@
 
 ## Unreleased
 
+### Added
+
+- **iPad and a resizable Mac window.** The app runs on iPad in every orientation (iPhone stays portrait). On a Mac the window can be as narrow as a phone, and the conversation keeps a readable width on a wide screen.
+- **Return sends the message, Shift-Return starts a new line** on a hardware keyboard. The on-screen keyboard is unchanged.
+
 ### Fixed
 
 - **The microphone did not start on a Mac** running the iPhone app (errors -10875, then -66628). Echo cancellation on a Mac refuses to start while playback goes through the main mixer; there the player now goes straight to the output, so the Mac keeps echo cancellation. If it still fails, the app waits half a second for macOS to rebuild its audio device and starts without it.
+- **Turning the microphone off on a Mac failed with -50.** Releasing the echo-cancelling engine makes macOS tear the audio device down for about a second, and playback started in that time fails. On a Mac the engine is now kept and reused, and cleaning up a speaker-only engine no longer touches the microphone.
+- **"Apple voice did not respond" right after launch.** The greeting asks for two sentences at once, and Apple's synthesizer could leave one unanswered. Sentences are now synthesized one at a time; if the voice does not answer within 10 seconds, a new synthesizer tries again.
+- **The profile menu opened twice on a Mac and iPad** (first another "Profile" item, then the list). The profiles are now shown straight in the menu.
 
 ### Changed
 
 - **"This device" instead of "iPhone"**, since the app also runs on a Mac and an iPad: the built-in tools in Settings and in profiles, Apple's model, speech recognition and voice, error messages and the tool descriptions for the model. The built-in tools are named `device__…` instead of `iphone__…`. A saved model still called "Apple (on this iPhone)" is renamed; a name you wrote yourself stays.
+- **Send and stop buttons are the size of the microphone button,** all three round and filled.
+- `run-on-mac.sh` builds the app for a Mac and installs it as `~/Applications/Voice Agent.app`; macOS will not open the bare build.
 
 ### Tests
 
-- `MacProbeTests`, run only on a Mac with the destination My Mac (Designed for iPad): the microphone starts with echo cancellation, and Apple speech recognition writes Czech speech.
+- `MacProbeTests`, run only on a Mac with the destination My Mac (Designed for iPad): the microphone starts with echo cancellation and turns on and off again, Apple speech recognition writes Czech speech, Apple's voice answers two sentences asked at once, and the window may be narrow.
+- Return and Shift-Return in the message field.
 
 ## 1.26.45
 

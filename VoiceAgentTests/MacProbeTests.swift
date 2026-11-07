@@ -1,3 +1,4 @@
+import SwiftUI
 import AVFoundation
 import Speech
 import XCTest
@@ -54,5 +55,38 @@ final class MacProbeTests: XCTestCase {
         XCTAssertGreaterThan(SpeechCheck.confidence(pcm), 0.5)
         let text = try await AppleSTT(language: "cs-CZ").transcribe(wav: wavData(pcm, sampleRate: 16000))
         XCTAssertTrue(text.lowercased().contains("zkouška"), text)
+    }
+
+    /// At launch the greeting asks for two sentences at once; the Mac's synthesizer used to leave one unanswered.
+    func testAppleVoiceAnswersSentencesAskedAtOnce() async throws {
+        let tts = AppleTTS(voiceID: "", language: "cs-CZ")
+        async let first = tts.synthesize("Dobrý den.")
+        async let second = tts.synthesize("Jak se dnes máte?")
+        let (a, b) = try await (first, second)
+        XCTAssertGreaterThan(a.buffer.frameLength, 0)
+        XCTAssertGreaterThan(b.buffer.frameLength, 0)
+    }
+
+    /// The window may be as narrow as a phone.
+    func testWindowCanBeNarrow() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let restrictions = try XCTUnwrap(scene.sizeRestrictions, "a Mac window has size limits")
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: Color.clear.background(WindowSizeLimits()))
+        window.makeKeyAndVisible()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(restrictions.minimumSize, WindowSizeLimits.minimum)
+        window.isHidden = true
+    }
+
+    /// Turning the microphone off used to fail with -50 while the Mac rebuilt its audio device.
+    func testMicrophoneTurnsOnAndOffAgain() throws {
+        let audio = AudioIO()
+        for _ in 0..<2 {
+            try audio.ensureRunning(mic: true)
+            XCTAssertEqual(audio.micSetups.first, .voiceProcessingDirect)
+            try audio.ensureRunning(mic: false)
+        }
+        audio.release()
     }
 }

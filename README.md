@@ -34,6 +34,8 @@ The same app runs on a Mac with Apple silicon: choose the destination My Mac (De
 xcodebuild test -project VoiceAgent.xcodeproj -scheme VoiceAgent -destination 'platform=macOS,variant=Designed for iPad' -only-testing:VoiceAgentTests/MacProbeTests
 ```
 
+macOS will not open the bare `.app` from that build ("not supported"). `./run-on-mac.sh` builds it, wraps it as `~/Applications/Voice Agent.app` so it opens from Finder, Launchpad and Spotlight, and opens it; `--open` skips the build.
+
 CarPlay code is included, but a real car needs the voice-based conversation entitlement from Apple, so `CarPlay.entitlements` applies only to the simulator.
 
 

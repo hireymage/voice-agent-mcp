@@ -25,6 +25,7 @@ private struct RootView: View {
         screen
             .environment(\.locale, Locale(identifier: languageCode))
             .background(KeyboardDismissal())
+            .background(WindowSizeLimits())
             .task(id: store.settings.dataNoticeAccepted) { if greetsOnOpen { conversation.greetOnce() } }
             .sheet(isPresented: Binding(get: { !store.settings.dataNoticeAccepted }, set: { _ in })) {
                 DataNoticeView { store.settings.dataNoticeAccepted = true }
@@ -141,6 +142,8 @@ struct ChatView: View {
             Picker("Profile", selection: Binding(get: { store.settings.activeProfileID }, set: { conversation.switchProfile(to: $0) })) {
                 ForEach(store.settings.profiles) { Text(verbatim: $0.displayName).tag($0.id) }
             }
+            // On an iPad and a Mac a picker in a menu is a submenu of its own: the profiles right in the menu instead.
+            .pickerStyle(.inline)
         } label: {
             HStack(spacing: 4) {
                 Text(verbatim: store.settings.profile.displayName).font(.headline).lineLimit(1)
@@ -162,6 +165,9 @@ struct ChatView: View {
                     }
                 }
                 .padding()
+                // Lines as wide as an iPad or a Mac window are hard to read: the column stops at a readable width.
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity)
             }
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom)
@@ -192,30 +198,23 @@ struct ChatView: View {
                     if store.settings.subagentEnabled { SubagentCount(count: conversation.activeSubagents) }
                 }
             HStack(spacing: 10) {
-                MultilineField(title: "Message", text: $draft)
+                MultilineField(title: "Message", text: $draft, onSubmit: { if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { sendDraft() } })
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
                     .background(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(.separator)))
                 if !draft.isEmpty {
-                    Button("Send", systemImage: "arrow.up.circle.fill", action: sendDraft)
-                        .labelStyle(.iconOnly)
-                        .font(.title)
+                    Button("Send", systemImage: "arrow.up", action: sendDraft)
+                        .modifier(RoundAction(color: .accentColor))
                 }
                 if isBusy {
-                    Button("Stop", systemImage: "stop.circle.fill") { conversation.interrupt() }
-                        .labelStyle(.iconOnly)
-                        .font(.title)
-                        .tint(.orange)
+                    Button("Stop", systemImage: "stop.fill") { conversation.interrupt() }
+                        .modifier(RoundAction(color: .orange))
                 }
                 Button(conversation.micOn ? "Stop listening" : "Start listening", systemImage: conversation.micOn ? "mic.fill" : "mic") {
                     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                     conversation.toggleMic()
                 }
-                .labelStyle(.iconOnly)
-                .font(.title2)
-                .frame(width: 48, height: 48)
-                .background(conversation.micOn ? Color.red : Color.accentColor, in: Circle())
-                .foregroundStyle(.white)
+                .modifier(RoundAction(color: conversation.micOn ? .red : .accentColor))
             }
         }
         .padding(.horizontal)
@@ -232,6 +231,36 @@ struct ChatView: View {
     private func sendDraft() {
         conversation.send(draft)
         draft = ""
+    }
+}
+
+/// A window on a Mac or an iPad may be as narrow as a phone: the system's own minimum for an iPad app is much wider.
+struct WindowSizeLimits: UIViewRepresentable {
+    static let minimum = CGSize(width: 320, height: 480)
+
+    func makeUIView(context: Context) -> Setter { Setter() }
+    func updateUIView(_ view: Setter, context: Context) {}
+
+    final class Setter: UIView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            window?.windowScene?.sizeRestrictions?.minimumSize = WindowSizeLimits.minimum
+        }
+    }
+}
+
+/// The buttons next to the message box: the same filled circle for send, stop and the microphone.
+private struct RoundAction: ViewModifier {
+    let color: Color
+
+    func body(content: Content) -> some View {
+        content
+            .labelStyle(.iconOnly)
+            .font(.title2.weight(.semibold))
+            .frame(width: 48, height: 48)
+            .background(color, in: Circle())
+            .foregroundStyle(.white)
+            .contentShape(Circle())
     }
 }
 
