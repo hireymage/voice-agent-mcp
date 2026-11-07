@@ -12,6 +12,8 @@
 - **The microphone did not start on a Mac** running the iPhone app (errors -10875, then -66628). Echo cancellation on a Mac refuses to start while playback goes through the main mixer; there the player now goes straight to the output, so the Mac keeps echo cancellation. If it still fails, the app waits half a second for macOS to rebuild its audio device and starts without it.
 - **Turning the microphone off on a Mac failed with -50.** Releasing the echo-cancelling engine makes macOS tear the audio device down for about a second, and playback started in that time fails. On a Mac the engine is now kept and reused, and cleaning up a speaker-only engine no longer touches the microphone.
 - **"Apple voice did not respond" right after launch.** The greeting asks for two sentences at once, and Apple's synthesizer could leave one unanswered. Sentences are now synthesized one at a time; if the voice does not answer within 10 seconds, a new synthesizer tries again.
+- **The chat lost the end of a growing answer after the keyboard was pulled down.** Pulling the keyboard down drags the chat with the finger first, and the app took that for scrolling up to read. A drag that began with the keyboard up no longer stops following; once the keyboard is gone, the chat goes back to the end. While it follows, the chat also returns to the end by itself if anything moves it away.
+- **The keyboard went away after sending.** Tapping send or stop now leaves it up for the next message; a tap into the chat or a settings list still puts it away.
 - **The profile menu opened twice on a Mac and iPad** (first another "Profile" item, then the list). The profiles are now shown straight in the menu.
 
 ### Changed
@@ -23,7 +25,9 @@
 ### Tests
 
 - `MacProbeTests`, run only on a Mac with the destination My Mac (Designed for iPad): the microphone starts with echo cancellation and turns on and off again, Apple speech recognition writes Czech speech, Apple's voice answers two sentences asked at once, and the window may be narrow.
-- Return and Shift-Return in the message field.
+- Return and Shift-Return in the message field; which taps put the keyboard away.
+- `ScrollTests`: the end of the conversation stays in view while answers are written and when the view changes height.
+- Debug builds take `-autoStream YES` to write a long answer slowly on a simulator.
 
 ## 1.26.45
 

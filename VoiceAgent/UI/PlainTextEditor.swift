@@ -121,9 +121,21 @@ struct MultilineField: View {
     }
 }
 
-/// Phone keyboards have no key that puts them away: a tap anywhere that is not a text box does, on every screen
+/// Phone keyboards have no key that puts them away: a tap into the content (not a text box) does, on every screen
 /// and sheet of the window. The tap still reaches what was tapped.
 struct KeyboardDismissal: UIViewRepresentable {
+    /// Only a tap into the content: the chat or a settings list. The buttons beside the message box (send, stop)
+    /// leave the keyboard up, so the next message can be typed straight away.
+    static func dismisses(tapOn view: UIView?) -> Bool {
+        var view = view
+        while let v = view {
+            if v is UITextField || v is UITextView { return false }
+            if v is UIScrollView { return true }
+            view = v.superview
+        }
+        return false
+    }
+
     func makeUIView(context: Context) -> Installer { Installer() }
     func updateUIView(_ view: Installer, context: Context) {}
 
@@ -143,12 +155,7 @@ struct KeyboardDismissal: UIViewRepresentable {
         @objc private func tapped() { installedOn?.endEditing(true) }
 
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            var view = touch.view
-            while let v = view {
-                if v is UITextField || v is UITextView { return false }
-                view = v.superview
-            }
-            return true
+            KeyboardDismissal.dismisses(tapOn: touch.view)
         }
 
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }

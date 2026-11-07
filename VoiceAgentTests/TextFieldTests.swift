@@ -83,6 +83,24 @@ final class TextFieldTests: XCTestCase {
         XCTAssertEqual(view.text, "Hi\n", "sending adds no line")
         XCTAssertNil(SubmittingTextView().keyCommands?.first { $0.input == "\r" })
     }
+
+    /// Tapping send keeps the keyboard up for the next message; tapping into the chat puts it away.
+    func testOnlyATapIntoTheContentPutsTheKeyboardAway() {
+        let bar = UIView()
+        let button = UIView()
+        bar.addSubview(button)
+        XCTAssertFalse(KeyboardDismissal.dismisses(tapOn: button), "a button beside the message box")
+
+        let chat = UIScrollView()
+        let bubble = UIView()
+        chat.addSubview(bubble)
+        XCTAssertTrue(KeyboardDismissal.dismisses(tapOn: bubble), "a bubble in the chat")
+
+        let field = UITextView()
+        chat.addSubview(field)
+        XCTAssertFalse(KeyboardDismissal.dismisses(tapOn: field), "the text box itself")
+        XCTAssertFalse(KeyboardDismissal.dismisses(tapOn: nil))
+    }
 }
 
 extension TextFieldTests {
