@@ -609,6 +609,18 @@ final class GreetingTests: XCTestCase {
         XCTAssertEqual(again.profiles[0].subagentSoul.text, "Answer briefly.")
     }
 
+    /// The time goes to the model as a reading of the device clock, with its time zone, in every system text.
+    func testTheModelIsToldTheTimeOfDay() throws {
+        let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Prague"))
+        var parts = DateComponents(calendar: Calendar(identifier: .gregorian), timeZone: zone, year: 2026, month: 11, day: 7, hour: 17, minute: 2)
+        parts.second = 0
+        let now = try XCTUnwrap(parts.date)
+        let line = AgentSetup.dateLine(now, timeZone: zone)
+        XCTAssertEqual(line, "The user's device clock shows it is now 17:02 on Saturday 7 November 2026 (time zone Europe/Prague). This is the real current local time; use it whenever the date or time matters.")
+        XCTAssertTrue(AgentSetup.mainSystem(soul: "", spoken: false, listening: false).contains("device clock shows it is now"))
+        XCTAssertTrue(AgentSetup.subagentSystem(instructions: "").contains("device clock shows it is now"))
+    }
+
     func testApplesModelIsNoLongerNamedAfterTheIPhone() throws {
         let old = #"{"servers":[{"id":"8C0F69B7-B350-4C84-9B43-B48781C6CDC1","name":"Apple (v tomto iPhonu)","api":"apple","baseURL":""},{"id":"8C0F69B7-B350-4C84-9B43-B48781C6CDC2","name":"My iPhone model","api":"apple","baseURL":""}]}"#
         let s = try JSONDecoder().decode(AppSettings.self, from: Data(old.utf8))

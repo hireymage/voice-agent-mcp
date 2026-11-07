@@ -14,6 +14,7 @@
 - **"Apple voice did not respond" right after launch.** The greeting asks for two sentences at once, and Apple's synthesizer could leave one unanswered. Sentences are now synthesized one at a time; if the voice does not answer within 10 seconds, a new synthesizer tries again.
 - **The chat lost the end of a growing answer after the keyboard was pulled down.** Pulling the keyboard down drags the chat with the finger first, and the app took that for scrolling up to read. A drag that began with the keyboard up no longer stops following; once the keyboard is gone, the chat goes back to the end. While it follows, the chat also returns to the end by itself if anything moves it away.
 - **The keyboard went away after sending.** Tapping send or stop now leaves it up for the next message; a tap into the chat or a settings list still puts it away.
+- **Some models did not tell the time.** Qwen3 Coder 30B answered that it has no access to the current time, or called the calendar tool and gave only the date, although the time was in its instructions. The time now goes to the model as a reading of the device clock, with its time zone and a note that it is the real local time. In a test against that model the answer named the time in 3 of 4 tries, before in none.
 - **The profile menu opened twice on a Mac and iPad** (first another "Profile" item, then the list). The profiles are now shown straight in the menu.
 
 ### Changed
@@ -26,6 +27,7 @@
 
 - `MacProbeTests`, run only on a Mac with the destination My Mac (Designed for iPad): the microphone starts with echo cancellation and turns on and off again, Apple speech recognition writes Czech speech, Apple's voice answers two sentences asked at once, and the window may be narrow.
 - Return and Shift-Return in the message field; which taps put the keyboard away.
+- The time line the model gets; on a Mac, that it carries the hour.
 - `ScrollTests`: the end of the conversation stays in view while answers are written and when the view changes height.
 - Debug builds take `-autoStream YES` to write a long answer slowly on a simulator.
 

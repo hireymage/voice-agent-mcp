@@ -164,11 +164,14 @@ enum AgentSetup {
     /// Sent unseen at the start of a conversation, so that the agent speaks first and everything gets loaded right away.
     static func greeting(language: String) -> String { "The conversation has just started and you speak first. Greet the user briefly and naturally for the time of day, in \(language), and ask how they are and what you will do together. Do not say the date or time. One or two short sentences, without tools, and do not mention this message." }
 
-    static func dateLine(_ now: Date = Date()) -> String {
+    /// Worded as a reading of the device clock: some models (Qwen3 Coder) answered that they have no access to the
+    /// time when the line only said "Current date and time", or looked for a tool to find it.
+    static func dateLine(_ now: Date = Date(), timeZone: TimeZone = .current) -> String {
         let f = DateFormatter()
-        f.dateStyle = .full
-        f.timeStyle = .short
-        return "Current date and time: \(f.string(from: now))."
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = timeZone
+        f.dateFormat = "HH:mm 'on' EEEE d MMMM yyyy"
+        return "The user's device clock shows it is now \(f.string(from: now)) (time zone \(timeZone.identifier)). This is the real current local time; use it whenever the date or time matters."
     }
 
     static func mainSystem(soul: String, spoken: Bool, listening: Bool, now: Date = Date()) -> String {
