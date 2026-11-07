@@ -101,6 +101,15 @@ final class AudioIO {
     private var carry: [Float] = []
     private var observers: [NSObjectProtocol] = []
     private var configObserver: NSObjectProtocol?
+    private var engineListens = false
+    /// On a Mac the voice processing engine is kept and started again. Released, it is torn down for about a
+    /// second, and every engine started meanwhile fails (-50), including the next attempts.
+    private var keptVoiceEngine: AVAudioEngine?
+    /// How the microphone is set up, best first. A way that kept the engine from starting is not tried again.
+    /// On a Mac running the iPhone app, voice processing starts only with the player wired straight to the output.
+    enum MicSetup { case voiceProcessing, voiceProcessingDirect, plain }
+    private(set) var micSetups: [MicSetup] = ProcessInfo.processInfo.isiOSAppOnMac
+        ? [.voiceProcessingDirect, .plain] : [.voiceProcessing, .voiceProcessingDirect, .plain]
 
     init() {
         let center = NotificationCenter.default
@@ -148,11 +157,48 @@ final class AudioIO {
             try session.setCategory(.playback, mode: .spokenAudio)
         }
         try session.setActive(true)
+        guard mic else {
+            // A released voice processing engine is torn down for about a second on a Mac, and until then the speaker
+            // alone fails to start (-50). Keep trying for up to three seconds.
+            for attempt in 0..<12 {
+                do { return try startEngine(mic: false, setup: .plain) } catch where attempt < 11 {
+                    stop()
+                    Thread.sleep(forTimeInterval: 0.25)
+                }
+            }
+            return
+        }
+        // A failed start can be the device still rebuilding after the previous engine (-66628 on a Mac), so each way
+        // gets a second try after a pause before a worse one is used.
+        for (i, setup) in micSetups.enumerated() {
+            for attempt in 0..<2 {
+                do {
+                    try startEngine(mic: true, setup: setup)
+                    micSetups = Array(micSetups[i...])
+                    return
+                } catch {
+                    stop()
+                    if attempt == 1, setup == .voiceProcessingDirect { keptVoiceEngine = nil }
+                    if i == micSetups.count - 1, attempt == 1 { throw error }
+                    Thread.sleep(forTimeInterval: 0.5)
+                }
+            }
+        }
+    }
 
-        let engine = AVAudioEngine()
-        if mic { try? engine.inputNode.setVoiceProcessingEnabled(true) }
+    private func startEngine(mic: Bool, setup: MicSetup) throws {
+        let keep = mic && setup == .voiceProcessingDirect
+        let engine = (keep ? keptVoiceEngine : nil) ?? AVAudioEngine()
+        if keep { keptVoiceEngine = engine }
+        // Held at once, so that stop() takes the player and the tap back from an engine that fails to start.
+        self.engine = engine
+        engineListens = mic
+        if mic, setup != .plain, !engine.inputNode.isVoiceProcessingEnabled { try? engine.inputNode.setVoiceProcessingEnabled(true) }
         engine.attach(player)
-        engine.connect(player, to: engine.mainMixerNode, format: AudioFormats.playback)
+        // Voice processing on a Mac refuses to start (-10875, "client-side input and output formats do not match")
+        // while the main mixer feeds the output; the player going straight to the output starts.
+        let direct = mic && setup == .voiceProcessingDirect
+        engine.connect(player, to: direct ? engine.outputNode : engine.mainMixerNode, format: AudioFormats.playback)
         if mic {
             let input = engine.inputNode
             let format = input.outputFormat(forBus: 0)
@@ -170,7 +216,6 @@ final class AudioIO {
         engine.prepare()
         try engine.start()
         player.play()
-        self.engine = engine
         warmUp()
     }
 
@@ -178,7 +223,10 @@ final class AudioIO {
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
         configObserver = nil
         player.stop()
-        engine?.inputNode.removeTap(onBus: 0)
+        // Only an engine that listened has an input node to clean up: asking another one for it creates one, and on
+        // a Mac that rebuilds the audio device and keeps the next start failing.
+        if engineListens { engine?.inputNode.removeTap(onBus: 0) }
+        engineListens = false
         engine?.stop()
         if let engine { engine.detach(player) }
         engine = nil

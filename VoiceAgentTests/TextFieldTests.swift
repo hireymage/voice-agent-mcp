@@ -63,6 +63,44 @@ final class TextFieldTests: XCTestCase {
         XCTAssertEqual(store.settings.servers[0].name, "Abc", "leaving the field must keep the text")
         XCTAssertEqual(textFields().first?.text, "Abc")
     }
+
+    /// A hardware keyboard: Return sends, Shift-Return starts a new line. Without a send action Return stays a new line.
+    func testReturnSendsAndShiftReturnStartsALine() throws {
+        var sent = 0
+        let view = SubmittingTextView()
+        view.onSubmit = { sent += 1 }
+        view.text = "Hi"
+        let commands = try XCTUnwrap(view.keyCommands).filter { $0.input == "\r" }
+        let send = try XCTUnwrap(commands.first { $0.modifierFlags.isEmpty })
+        let newLine = try XCTUnwrap(commands.first { $0.modifierFlags == .shift })
+        XCTAssertTrue(send.wantsPriorityOverSystemBehavior)
+        view.selectedRange = NSRange(location: 2, length: 0)
+        view.perform(newLine.action)
+        XCTAssertEqual(view.text, "Hi\n")
+        XCTAssertEqual(sent, 0)
+        view.perform(send.action)
+        XCTAssertEqual(sent, 1)
+        XCTAssertEqual(view.text, "Hi\n", "sending adds no line")
+        XCTAssertNil(SubmittingTextView().keyCommands?.first { $0.input == "\r" })
+    }
+
+    /// Tapping send keeps the keyboard up for the next message; tapping into the chat puts it away.
+    func testOnlyATapIntoTheContentPutsTheKeyboardAway() {
+        let bar = UIView()
+        let button = UIView()
+        bar.addSubview(button)
+        XCTAssertFalse(KeyboardDismissal.dismisses(tapOn: button), "a button beside the message box")
+
+        let chat = UIScrollView()
+        let bubble = UIView()
+        chat.addSubview(bubble)
+        XCTAssertTrue(KeyboardDismissal.dismisses(tapOn: bubble), "a bubble in the chat")
+
+        let field = UITextView()
+        chat.addSubview(field)
+        XCTAssertFalse(KeyboardDismissal.dismisses(tapOn: field), "the text box itself")
+        XCTAssertFalse(KeyboardDismissal.dismisses(tapOn: nil))
+    }
 }
 
 extension TextFieldTests {

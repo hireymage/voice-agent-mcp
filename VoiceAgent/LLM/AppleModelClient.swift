@@ -9,14 +9,14 @@ protocol ToolRunningLLMClient: LLMClient {
 
 /// Apple's own models from the Foundation Models framework. Nothing to sign in to and no address.
 enum AppleModel {
-    /// Runs on the iPhone; nothing leaves it.
+    /// Runs on the device; nothing leaves it.
     static let onDevice = "on-device"
     /// Private Cloud Compute needs a managed entitlement this app does not have. Without it the framework
     /// ends the whole app instead of throwing, although the model reports itself as available, so it is not offered.
     /// The name stays so that a choice saved earlier gets an explanation.
     static let privateCloud = "private-cloud"
 
-    /// The models this iPhone can use now. When there is none, the reason.
+    /// The models this device can use now. When there is none, the reason.
     static func names() throws -> [String] {
         guard #available(iOS 26, *) else { throw needsNewerSystem }
         if let problem = onDeviceProblem() { throw problem }
@@ -29,8 +29,8 @@ enum AppleModel {
     static func onDeviceProblem() -> AppError? {
         switch SystemLanguageModel.default.availability {
         case .available: nil
-        case .unavailable(.deviceNotEligible): AppError(tr("This iPhone cannot run Apple's model."))
-        case .unavailable(.appleIntelligenceNotEnabled): AppError(tr("Turn on Apple Intelligence in the iPhone's Settings to use Apple's model."))
+        case .unavailable(.deviceNotEligible): AppError(tr("This device cannot run Apple's model."))
+        case .unavailable(.appleIntelligenceNotEnabled): AppError(tr("Turn on Apple Intelligence in the device's Settings to use Apple's model."))
         case .unavailable(.modelNotReady): AppError(tr("Apple's model is not ready yet, it may still be downloading. Try again later."))
         case .unavailable: AppError(tr("Apple's model is not available now."))
         }

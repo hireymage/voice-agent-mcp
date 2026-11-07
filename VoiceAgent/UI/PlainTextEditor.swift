@@ -9,9 +9,13 @@ struct PlainTextEditor: UIViewRepresentable {
     var literal = false
     /// When set, the box grows with its text between these line counts and then scrolls.
     var lines: ClosedRange<Int>?
+    /// When set, Return on a hardware keyboard (a Mac, an iPad keyboard) calls this and Shift-Return starts a new line.
+    /// The on-screen keyboard has no Shift-Return, so its Return key still starts a new line.
+    var onSubmit: (() -> Void)?
 
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
+        let view = SubmittingTextView()
+        view.onSubmit = onSubmit
         view.delegate = context.coordinator
         view.backgroundColor = .clear
         view.adjustsFontForContentSizeCategory = true
@@ -44,6 +48,7 @@ struct PlainTextEditor: UIViewRepresentable {
     func updateUIView(_ view: UITextView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        (view as? SubmittingTextView)?.onSubmit = onSubmit
         if view.text == text {
             coordinator.sent.removeAll()
             return
@@ -73,15 +78,38 @@ struct PlainTextEditor: UIViewRepresentable {
     }
 }
 
+/// Return sends and Shift-Return starts a new line, for hardware keyboards only: key commands never fire for the
+/// on-screen keyboard.
+final class SubmittingTextView: UITextView {
+    var onSubmit: (() -> Void)?
+
+    override var keyCommands: [UIKeyCommand]? {
+        guard onSubmit != nil else { return super.keyCommands }
+        let send = UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(submit))
+        let newLine = UIKeyCommand(input: "\r", modifierFlags: .shift, action: #selector(insertNewLine))
+        for command in [send, newLine] { command.wantsPriorityOverSystemBehavior = true }
+        return [send, newLine] + (super.keyCommands ?? [])
+    }
+
+    @objc private func submit() {
+        // Return that finishes a word being composed (accents, other scripts) only finishes it.
+        if markedTextRange != nil { unmarkText(); return }
+        onSubmit?()
+    }
+
+    @objc private func insertNewLine() { insertText("\n") }
+}
+
 /// A box that grows with its text, with a placeholder, in place of `TextField(axis: .vertical)`, which loses the cursor the same way.
 struct MultilineField: View {
     let title: LocalizedStringKey
     @Binding var text: String
     var lines: ClosedRange<Int> = 1...4
     var literal = false
+    var onSubmit: (() -> Void)?
 
     var body: some View {
-        PlainTextEditor(text: $text, literal: literal, lines: lines)
+        PlainTextEditor(text: $text, literal: literal, lines: lines, onSubmit: onSubmit)
             .overlay(alignment: .topLeading) {
                 if text.isEmpty {
                     Text(title)
@@ -93,9 +121,21 @@ struct MultilineField: View {
     }
 }
 
-/// iPhone keyboards have no key that puts them away: a tap anywhere that is not a text box does, on every screen
+/// Phone keyboards have no key that puts them away: a tap into the content (not a text box) does, on every screen
 /// and sheet of the window. The tap still reaches what was tapped.
 struct KeyboardDismissal: UIViewRepresentable {
+    /// Only a tap into the content: the chat or a settings list. The buttons beside the message box (send, stop)
+    /// leave the keyboard up, so the next message can be typed straight away.
+    static func dismisses(tapOn view: UIView?) -> Bool {
+        var view = view
+        while let v = view {
+            if v is UITextField || v is UITextView { return false }
+            if v is UIScrollView { return true }
+            view = v.superview
+        }
+        return false
+    }
+
     func makeUIView(context: Context) -> Installer { Installer() }
     func updateUIView(_ view: Installer, context: Context) {}
 
@@ -115,12 +155,7 @@ struct KeyboardDismissal: UIViewRepresentable {
         @objc private func tapped() { installedOn?.endEditing(true) }
 
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            var view = touch.view
-            while let v = view {
-                if v is UITextField || v is UITextView { return false }
-                view = v.superview
-            }
-            return true
+            KeyboardDismissal.dismisses(tapOn: touch.view)
         }
 
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }

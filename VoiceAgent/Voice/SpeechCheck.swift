@@ -1,7 +1,7 @@
 import AVFoundation
 import SoundAnalysis
 
-/// Whether audio sounds like a person talking, from the iPhone's own sound classifier. Speech-to-text writes
+/// Whether audio sounds like a person talking, from the device's own sound classifier. Speech-to-text writes
 /// words even for noise (Whisper's well-known "subtitles by" lines), so a word alone is not proof of speech.
 enum SpeechCheck {
     /// The classifier's highest confidence for speech in any window of the clip, 0…1.

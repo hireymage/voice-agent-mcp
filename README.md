@@ -10,8 +10,8 @@ The interface is in English and Czech.
 - **Natural conversation:** the app hears when you finish, reads the answer aloud sentence by sentence, and stops when you talk over it, either at once or only after speech recognition writes your first word, so a cough or noise does not stop it. Subagents can start looking things up while you are still speaking.
 - **Subagents in the background:** the main agent hands a task to a subagent and carries on talking with you; the report comes in later and the agent tells you what matters. A small counter next to the state shows how many subagents are at work.
 - **Your own speech services:** Apple, OpenAI-compatible services, whisper.cpp and ElevenLabs for speech to text; Apple, OpenAI-compatible services, Piper and ElevenLabs for text to speech. Save as many services as you like and try each one in Settings.
-- **MCP tools:** HTTP (Streamable HTTP) servers with custom headers and `mcp.json` import. Any single tool can be turned off. Local stdio servers cannot run on an iPhone.
-- **iPhone tools:** calendar, reminders and contacts, each off until you turn it on.
+- **MCP tools:** HTTP (Streamable HTTP) servers with custom headers and `mcp.json` import. Any single tool can be turned off. Local stdio servers cannot run in the app.
+- **Tools of this device:** calendar, reminders and contacts, each off until you turn it on.
 - **Profiles:** several agents, each with its own soul, subagent soul, thinking level for the main agent and the subagent, MCP servers and spoken or text-only replies.
 
 ## Build it
@@ -27,6 +27,14 @@ xcodebuild test -project VoiceAgent.xcodeproj -scheme VoiceAgent -destination 'p
 ```
 
 `LiveTests` run against real servers and are skipped unless the `TEST_RUNNER_LIVE_*` environment variables are set. Xcode sometimes does not return after the tests finish; the result is on the log line `Test Suite 'All tests' passed`.
+
+The same app runs on a Mac with Apple silicon: choose the destination My Mac (Designed for iPad). `MacProbeTests` run only there; they check that the microphone starts with echo cancellation and that Apple speech recognition works.
+
+```bash
+xcodebuild test -project VoiceAgent.xcodeproj -scheme VoiceAgent -destination 'platform=macOS,variant=Designed for iPad' -only-testing:VoiceAgentTests/MacProbeTests
+```
+
+macOS will not open the bare `.app` from that build ("not supported"). `./run-on-mac.sh` builds it, wraps it as `~/Applications/Voice Agent.app` so it opens from Finder, Launchpad and Spotlight, and opens it; `--open` skips the build.
 
 CarPlay code is included, but a real car needs the voice-based conversation entitlement from Apple, so `CarPlay.entitlements` applies only to the simulator.
 
