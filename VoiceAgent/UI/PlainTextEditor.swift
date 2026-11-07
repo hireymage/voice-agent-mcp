@@ -92,3 +92,37 @@ struct MultilineField: View {
             }
     }
 }
+
+/// iPhone keyboards have no key that puts them away: a tap anywhere that is not a text box does, on every screen
+/// and sheet of the window. The tap still reaches what was tapped.
+struct KeyboardDismissal: UIViewRepresentable {
+    func makeUIView(context: Context) -> Installer { Installer() }
+    func updateUIView(_ view: Installer, context: Context) {}
+
+    final class Installer: UIView, UIGestureRecognizerDelegate {
+        private weak var installedOn: UIWindow?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            guard let window, window !== installedOn else { return }
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+            tap.cancelsTouchesInView = false
+            tap.delegate = self
+            window.addGestureRecognizer(tap)
+            installedOn = window
+        }
+
+        @objc private func tapped() { installedOn?.endEditing(true) }
+
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            var view = touch.view
+            while let v = view {
+                if v is UITextField || v is UITextView { return false }
+                view = v.superview
+            }
+            return true
+        }
+
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    }
+}

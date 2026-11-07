@@ -24,6 +24,7 @@ private struct RootView: View {
     var body: some View {
         screen
             .environment(\.locale, Locale(identifier: languageCode))
+            .background(KeyboardDismissal())
             .task(id: store.settings.dataNoticeAccepted) { if greetsOnOpen { conversation.greetOnce() } }
             .sheet(isPresented: Binding(get: { !store.settings.dataNoticeAccepted }, set: { _ in })) {
                 DataNoticeView { store.settings.dataNoticeAccepted = true }
@@ -152,7 +153,9 @@ struct ChatView: View {
     private var messages: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 10) {
+                // Not lazy: a lazy stack guesses the heights of rows it has not laid out, and a growing answer then
+                // makes the content jump up and down. A conversation lives only until the app closes.
+                VStack(spacing: 10) {
                     if conversation.items.isEmpty { emptyHint }
                     ForEach(conversation.items) { item in
                         ChatBubble(item: item).id(item.id)
@@ -161,9 +164,8 @@ struct ChatView: View {
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
-            .onChange(of: conversation.items.last) { _, last in
-                if let last { proxy.scrollTo(last.id, anchor: .bottom) }
-            }
+            .defaultScrollAnchor(.bottom)
+            .modifier(FollowsTheEnd(itemCount: conversation.items.count, lastText: conversation.items.last?.text ?? "", lastID: conversation.items.last?.id, proxy: proxy))
         }
     }
 
@@ -186,6 +188,9 @@ struct ChatView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
                 .lineLimit(1)
+                .overlay(alignment: .leading) {
+                    if store.settings.subagentEnabled { SubagentCount(count: conversation.activeSubagents) }
+                }
             HStack(spacing: 10) {
                 MultilineField(title: "Message", text: $draft)
                     .padding(.horizontal, 8)
@@ -227,6 +232,67 @@ struct ChatView: View {
     private func sendDraft() {
         conversation.send(draft)
         draft = ""
+    }
+}
+
+/// Keeps the end of the conversation in view while an answer grows, without scrolling for every piece of text:
+/// the scroll view itself holds on to the end. Someone who scrolled up to read is left there until they come back.
+private struct FollowsTheEnd: ViewModifier {
+    let itemCount: Int
+    let lastText: String
+    let lastID: UUID?
+    let proxy: ScrollViewProxy
+    @State private var atEnd = true
+    @State private var dragStart: CGFloat?
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18, *) {
+            content
+                .defaultScrollAnchor(atEnd ? .bottom : .top, for: .sizeChanges)
+                // Only a finger decides, and only by really scrolling up. A new bubble makes the content longer for a
+                // moment before the view follows, and a tap (say, to put the keyboard away) moves nothing; judging by
+                // either switched following off for good.
+                .onScrollPhaseChange { old, new, context in
+                    let g = context.geometry
+                    if old == .idle, new != .idle, new != .animating { dragStart = g.contentOffset.y }
+                    guard new == .idle, [.tracking, .interacting, .decelerating].contains(old) else { return }
+                    let nearEnd = g.contentOffset.y + g.containerSize.height - g.contentInsets.bottom >= g.contentSize.height - 80
+                    if nearEnd {
+                        atEnd = true
+                    } else if let start = dragStart, g.contentOffset.y < start - 40 {
+                        atEnd = false
+                    }
+                    dragStart = nil
+                }
+                .onChange(of: itemCount) { scrollToEnd() }
+        } else {
+            content.onChange(of: lastText) { scrollToEnd() }.onChange(of: itemCount) { scrollToEnd() }
+        }
+    }
+
+    /// After the new bubble has been laid out, so the scroll goes to where it really ends.
+    private func scrollToEnd() {
+        atEnd = true
+        guard let lastID else { return }
+        Task { @MainActor in
+            await Task.yield()
+            proxy.scrollTo(lastID, anchor: .bottom)
+        }
+    }
+}
+
+/// How many subagents are at work: grey at zero, in colour while any are.
+private struct SubagentCount: View {
+    let count: Int
+
+    var body: some View {
+        Text(verbatim: "\(count)")
+            .font(.caption2.monospacedDigit().weight(.semibold))
+            .foregroundStyle(count > 0 ? Color.white : Color.secondary)
+            .frame(width: 20, height: 20)
+            .background(Circle().fill(count > 0 ? Color.accentColor : Color(.tertiarySystemFill)))
+            .animation(.default, value: count)
+            .accessibilityLabel(Text("Subagents at work: \(count)"))
     }
 }
 

@@ -47,6 +47,7 @@ struct LLMConfig: Sendable {
     let apiKey: String
     let model: String
     let extra: JSONValue?
+    var thinking = Thinking.model
 
     var base: String {
         var b = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -57,6 +58,63 @@ struct LLMConfig: Sendable {
     func url(_ path: String) throws -> URL {
         guard let u = URL(string: base + path), u.scheme != nil else { throw AppError(tr("Invalid server address: %@", baseURL)) }
         return u
+    }
+}
+
+extension LLMConfig {
+    /// Models differ in which thinking parameters they accept, so the request goes out with each variant in turn
+    /// until the server takes one. If none is taken, the server's answer to the first one is shown.
+    func firstAccepted(_ send: (JSONValue?) async throws -> LLMResponse) async throws -> LLMResponse {
+        let variants = thinking.variants(api: api, model: model, base: base)
+        var first: Error?
+        for variant in variants {
+            do {
+                return try await send(variant)
+            } catch let failure as HTTPFailure where [400, 422].contains(failure.status) && !failure.isContextLimit && variants.count > 1 {
+                first = first ?? failure
+            }
+        }
+        throw first ?? AppError("The model failed.")
+    }
+}
+
+extension Thinking {
+    /// Request parameters for this level, best first. Nothing for the model's own default and for Apple's model.
+    func variants(api: LLMAPI, model: String, base: String) -> [JSONValue?] {
+        guard self != .model, api != .apple else { return [nil] }
+        let level = JSONValue.string(rawValue)
+        // Where "off" is not accepted, the lowest level that is comes instead.
+        let offEfforts: [JSONValue] = ["none", "minimal", "low"]
+        switch api {
+        case .openAIChat:
+            let clouds = ["api.openai.com", "openrouter.ai", "api.groq.com", "api.mistral.ai", "api.deepseek.com", "api.x.ai"]
+            if clouds.contains(where: base.contains) {
+                return self == .off ? offEfforts.map { ["reasoning_effort": $0] } : [["reasoning_effort": level]]
+            }
+            // Own servers (Ollama, vLLM, llama.cpp, LM Studio): reasoning_effort "none" makes some models write their
+            // thinking into the answer, so "off" is the chat template switch that models such as Qwen and GLM have.
+            return self == .off ? [["chat_template_kwargs": ["enable_thinking": false]]] : [["reasoning_effort": level]]
+        case .openAIResponses:
+            return self == .off ? offEfforts.map { ["reasoning": ["effort": $0]] } : [["reasoning": ["effort": level]]]
+        case .anthropic:
+            // Current Claude models take adaptive thinking with an effort; older ones a token budget, which needs room
+            // under max_tokens. Some current ones cannot switch thinking off or only "between tools".
+            if self == .off {
+                return [["thinking": ["type": "disabled"]], ["thinking": ["type": "between_tools"]], ["output_config": ["effort": "low"]]]
+            }
+            let budget = ["low": 2048, "medium": 8192, "high": 16384][rawValue] ?? 8192
+            return [["thinking": ["type": "adaptive"], "output_config": ["effort": level]],
+                    ["thinking": ["type": "enabled", "budget_tokens": .number(Double(budget))], "max_tokens": .number(Double(budget + 8192))]]
+        case .gemini:
+            if model.contains("gemini-2") {
+                let budgets: [Thinking: [Int]] = [.off: [0, 128], .low: [1024], .medium: [8192], .high: [24576]]
+                return (budgets[self] ?? [8192]).map { ["generationConfig": ["thinkingConfig": ["thinkingBudget": .number(Double($0))]]] }
+            }
+            let levels: [Thinking: [String]] = [.off: ["minimal", "low"], .low: ["low"], .medium: ["medium", "high"], .high: ["high"]]
+            return (levels[self] ?? ["high"]).map { ["generationConfig": ["thinkingConfig": ["thinkingLevel": .string($0)]]] }
+        case .apple:
+            return [nil]
+        }
     }
 }
 

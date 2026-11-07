@@ -131,6 +131,7 @@ final class AudioIO {
     #endif
 
     func finishPhrase() -> [Int16]? { lock.withLock { detector.finish() } }
+    func currentPhrase() -> [Int16]? { lock.withLock { detector.current() } }
 
     /// Starts the engine if needed. Turning the microphone on or off rebuilds it (voice processing is fixed at setup).
     func ensureRunning(mic: Bool) throws {

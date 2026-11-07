@@ -26,9 +26,12 @@ final class LiveWork {
     private var lastPlan = Date.distantPast
     private var speaking = true
     private var started: [String] = []
-    private var running: [UUID: Task<Void, Never>] = [:]
+    private var running: [UUID: Task<Void, Never>] = [:] { didSet { onRunning?(running.count) } }
+    /// How many subagents are at work now; stopped ones no longer count.
+    var onRunning: ((Int) -> Void)?
     private var findings: [Finding] = []
     private var cancelled = false
+    private var replanWanted = false
 
     init(planner: LLMClient, subagent: LLMClient, tools: [AgentTool], stt: STTProvider, subagentInstructions: String,
          onText: @escaping (String) -> Void) {
@@ -65,6 +68,14 @@ final class LiveWork {
         speaking = true
     }
 
+    /// A whole message that waits while the agent works on an earlier one: what it asks can be looked up now,
+    /// however short it is.
+    func consider(_ text: String) {
+        guard !cancelled else { return }
+        said = text
+        if plan != nil { replanWanted = true } else { planIfWorthIt(force: true) }
+    }
+
     /// The transcript of what was said so far, better than the pieces.
     func correctSaid(_ text: String) {
         said = text
@@ -96,10 +107,10 @@ final class LiveWork {
         planIfWorthIt()
     }
 
-    private func planIfWorthIt() {
+    private func planIfWorthIt(force: Bool = false) {
         let words = said.split(whereSeparator: \.isWhitespace).count
-        guard plan == nil, started.count < Self.maxTasks, words - plannedWords >= Self.minNewWords,
-              Date().timeIntervalSince(lastPlan) >= Self.minPlanInterval else { return }
+        guard plan == nil, started.count < Self.maxTasks else { return }
+        guard force || (words - plannedWords >= Self.minNewWords && Date().timeIntervalSince(lastPlan) >= Self.minPlanInterval) else { return }
         plannedWords = words
         lastPlan = Date()
         let request = Self.planRequest(said: said, started: started, tools: tools.map(\.def))
@@ -112,7 +123,12 @@ final class LiveWork {
             self.plan = nil
             guard !self.cancelled, !Task.isCancelled, let raw else { return }
             for task in Self.parsePlan(raw) { self.start(task) }
-            if self.speaking { self.planIfWorthIt() }
+            if self.replanWanted {
+                self.replanWanted = false
+                self.planIfWorthIt(force: true)
+            } else if self.speaking {
+                self.planIfWorthIt()
+            }
         }
     }
 

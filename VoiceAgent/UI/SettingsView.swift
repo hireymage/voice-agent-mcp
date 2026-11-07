@@ -62,6 +62,22 @@ struct SettingsView: View {
     }
 }
 
+/// Gives a screen the item straight from the store, found by its ID. A screen pushed from a list is not always
+/// redrawn with that list; with a copy handed over, it kept showing the old value, put it back into the text field
+/// and undid what was typed.
+struct Live<Item: Identifiable, Content: View>: View where Item.ID == UUID {
+    @Bindable var store: SettingsStore
+    let list: WritableKeyPath<AppSettings, [Item]>
+    let id: UUID
+    @ViewBuilder let content: (Binding<Item>) -> Content
+
+    var body: some View {
+        if let i = store.settings[keyPath: list].firstIndex(where: { $0.id == id }) {
+            content($store.settings[dynamicMember: list][i])
+        }
+    }
+}
+
 // MARK: - LLM servers
 
 struct LLMServersView: View {
@@ -70,9 +86,9 @@ struct LLMServersView: View {
 
     var body: some View {
         List {
-            ForEach($store.settings.servers) { $server in
+            ForEach(store.settings.servers) { server in
                 NavigationLink {
-                    LLMServerEditor(store: store, server: $server)
+                    Live(store: store, list: \.servers, id: server.id) { LLMServerEditor(store: store, server: $0) }
                 } label: {
                     VStack(alignment: .leading) {
                         Text(verbatim: server.name.isEmpty ? tr("Unnamed") : server.name)
@@ -109,9 +125,7 @@ struct LLMServersView: View {
             }
         }
         .navigationDestination(item: $added) { id in
-            if let i = store.settings.servers.firstIndex(where: { $0.id == id }) {
-                LLMServerEditor(store: store, server: $store.settings.servers[i])
-            }
+            Live(store: store, list: \.servers, id: id) { LLMServerEditor(store: store, server: $0) }
         }
     }
 }
@@ -303,16 +317,11 @@ struct SubagentView: View {
                 Toggle("Use a subagent", isOn: $store.settings.subagentEnabled)
             } footer: {
                 Text(store.settings.subagentEnabled
-                     ? "The main agent hands work to the subagent, and only the subagent uses the MCP tools."
+                     ? "The main agent hands work to the subagent, and only the subagent uses the MCP tools. Each profile has its own subagent soul."
                      : "The main agent uses the MCP tools itself.")
             }
             if store.settings.subagentEnabled {
                 ModelChoiceSection(store: store, choice: $store.settings.subagent, title: "Model", sameAsMain: true)
-                Section {
-                    MultilineField(title: "Optional", text: $store.settings.subagentInstructions, lines: 3...10)
-                } header: {
-                    Text("Extra instructions for the subagent")
-                }
             }
         }
         .navigationTitle("Subagent")
@@ -328,9 +337,9 @@ struct MCPServersView: View {
 
     var body: some View {
         List {
-            ForEach($store.settings.mcp) { $server in
+            ForEach(store.settings.mcp) { server in
                 NavigationLink {
-                    MCPServerEditor(store: store, server: $server)
+                    Live(store: store, list: \.mcp, id: server.id) { MCPServerEditor(store: store, server: $0) }
                 } label: {
                     VStack(alignment: .leading) {
                         Text(verbatim: server.name.isEmpty ? tr("Unnamed") : server.name)
@@ -366,9 +375,7 @@ struct MCPServersView: View {
         }
         .sheet(isPresented: $importing) { MCPImportView(store: store) }
         .navigationDestination(item: $added) { id in
-            if let i = store.settings.mcp.firstIndex(where: { $0.id == id }) {
-                MCPServerEditor(store: store, server: $store.settings.mcp[i])
-            }
+            Live(store: store, list: \.mcp, id: id) { MCPServerEditor(store: store, server: $0) }
         }
     }
 }
@@ -537,9 +544,9 @@ struct ProfilesView: View {
     var body: some View {
         List {
             Section {
-                ForEach($store.settings.profiles) { $profile in
+                ForEach(store.settings.profiles) { profile in
                     NavigationLink {
-                        ProfileEditor(store: store, conversation: conversation, profile: $profile)
+                        Live(store: store, list: \.profiles, id: profile.id) { ProfileEditor(store: store, conversation: conversation, profile: $0) }
                     } label: {
                         LabeledContent {
                             if profile.id == store.settings.activeProfileID { Image(systemName: "checkmark") }
@@ -564,9 +571,7 @@ struct ProfilesView: View {
             }
         }
         .navigationDestination(item: $added) { id in
-            if let i = store.settings.profiles.firstIndex(where: { $0.id == id }) {
-                ProfileEditor(store: store, conversation: conversation, profile: $store.settings.profiles[i])
-            }
+            Live(store: store, list: \.profiles, id: id) { ProfileEditor(store: store, conversation: conversation, profile: $0) }
         }
     }
 
@@ -602,10 +607,29 @@ struct ProfileEditor: View {
             }
             Section("Agent") {
                 NavigationLink {
-                    SoulView(soul: $profile.soul, conversation: conversation)
+                    Live(store: store, list: \.profiles, id: profile.id) { SoulView(soul: $0.soul, conversation: conversation) }
                 } label: {
-                    LabeledContent("Soul", value: profile.soul.text.isEmpty ? tr("Empty") : profile.soul.loadViaMCP ? tr("Through MCP") : tr("Text"))
+                    LabeledContent("Soul", value: summary(of: profile.soul))
                 }
+                NavigationLink {
+                    Live(store: store, list: \.profiles, id: profile.id) { SoulView(soul: $0.subagentSoul, conversation: conversation, forSubagent: true) }
+                } label: {
+                    LabeledContent("Subagent soul", value: store.settings.subagentEnabled ? summary(of: profile.subagentSoul) : tr("Off"))
+                }
+            }
+            Section {
+                Picker("Main agent", selection: $profile.mainThinking) {
+                    ForEach(Thinking.allCases) { Text(verbatim: $0.label).tag($0) }
+                }
+                if store.settings.subagentEnabled {
+                    Picker("Subagent", selection: $profile.subagentThinking) {
+                        ForEach(Thinking.allCases) { Text(verbatim: $0.label).tag($0) }
+                    }
+                }
+            } header: {
+                Text("Model thinking")
+            } footer: {
+                Text("The same levels for every model; the app sends each server what it understands. Model default sends nothing. A model that cannot switch thinking off gets its lowest level. Extra request parameters of a model take precedence.")
             }
             Section {
                 Toggle("iPhone", isOn: loads(PhoneTools.serverID))
@@ -635,6 +659,10 @@ struct ProfileEditor: View {
             }
         }
         .navigationTitle(profile.displayName)
+    }
+
+    private func summary(of soul: SoulSettings) -> String {
+        soul.text.isEmpty ? tr("Empty") : soul.loadViaMCP ? tr("Through MCP") : tr("Text")
     }
 
     private func loads(_ server: UUID) -> Binding<Bool> {
@@ -704,6 +732,7 @@ struct PhoneToolsView: View {
 struct SoulView: View {
     @Binding var soul: SoulSettings
     let conversation: ConversationModel
+    var forSubagent = false
 
     var body: some View {
         Form {
@@ -711,9 +740,15 @@ struct SoulView: View {
                 PlainTextEditor(text: $soul.text)
                     .frame(minHeight: 220)
             } footer: {
-                Text(soul.loadViaMCP
-                     ? "An instruction for the model. Example: Call get_persona on the memory MCP server with the name Alex."
-                     : "Who the agent is and how it behaves. Used as written.")
+                if forSubagent {
+                    Text(soul.loadViaMCP
+                         ? "An instruction for the model. Example: Call get_persona on the memory MCP server with the name Alex and the role research."
+                         : "How the subagent works when the main agent hands it a task. Used as written, on top of its basic rules.")
+                } else {
+                    Text(soul.loadViaMCP
+                         ? "An instruction for the model. Example: Call get_persona on the memory MCP server with the name Alex."
+                         : "Who the agent is and how it behaves. Used as written.")
+                }
             }
             Section {
                 Toggle("Load through MCP", isOn: $soul.loadViaMCP)
@@ -724,7 +759,7 @@ struct SoulView: View {
                 Button("Reload for the next message") { conversation.reloadSoul() }
             }
         }
-        .navigationTitle("Soul")
+        .navigationTitle(forSubagent ? "Subagent soul" : "Soul")
     }
 }
 
@@ -736,7 +771,7 @@ private struct SpeechServicesList<Service: SpeechService, Editor: View>: View {
     @Binding var services: [Service]
     @Binding var active: UUID
     let adding: [(label: String, make: () -> Service)]
-    @ViewBuilder let editor: (Binding<Service>) -> Editor
+    @ViewBuilder let editor: (UUID) -> Editor
     @State private var editing: UUID?
 
     var body: some View {
@@ -791,9 +826,7 @@ private struct SpeechServicesList<Service: SpeechService, Editor: View>: View {
             }
         }
         .navigationDestination(item: $editing) { id in
-            if let i = services.firstIndex(where: { $0.id == id }) {
-                editor($services[i])
-            }
+            editor(id)
         }
     }
 }
@@ -808,7 +841,7 @@ struct STTView: View {
             services: $store.settings.sttServices,
             active: $store.settings.activeSTT,
             adding: STTKind.allCases.map { kind in (kind.label, { STTSettings(kind: kind) }) }
-        ) { STTEditor(service: $0, conversation: conversation) }
+        ) { id in Live(store: store, list: \.sttServices, id: id) { STTEditor(service: $0, conversation: conversation) } }
     }
 }
 
@@ -891,7 +924,7 @@ struct TTSView: View {
             services: $store.settings.ttsServices,
             active: $store.settings.activeTTS,
             adding: TTSKind.allCases.map { kind in (kind.label, { TTSSettings(kind: kind) }) }
-        ) { TTSEditor(service: $0, conversation: conversation) }
+        ) { id in Live(store: store, list: \.ttsServices, id: id) { TTSEditor(service: $0, conversation: conversation) } }
     }
 }
 
@@ -982,8 +1015,16 @@ struct VoiceOptionsView: View {
         Form {
             Section {
                 Toggle("Interrupt by speaking", isOn: $store.settings.voice.bargeIn)
+                if store.settings.voice.bargeIn {
+                    Picker("When", selection: $store.settings.voice.bargeInOnWord) {
+                        Text("As soon as I speak").tag(false)
+                        Text("After the first word").tag(true)
+                    }
+                }
             } footer: {
-                Text("When interrupting is on, speaking over the agent stops it.")
+                Text(!store.settings.voice.bargeIn ? "When interrupting is on, speaking over the agent stops it."
+                     : store.settings.voice.bargeInOnWord ? "The agent stops once speech recognition writes your first word, so a cough or noise does not stop it. It takes a moment longer."
+                     : "Speaking over the agent stops it at once.")
             }
             Section {
                 Toggle("Work while I talk", isOn: $store.settings.workWhileTalking)
