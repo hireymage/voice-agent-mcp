@@ -28,6 +28,8 @@ final class ConversationModel {
     }
 
     private(set) var items: [ChatItem] = []
+    /// The agent called end_conversation: the microphone turns off once its goodbye has been said.
+    private var endAfterTurn = false
     private(set) var phase = Phase.idle
     private(set) var micOn = false
     private(set) var carSession = false
@@ -532,6 +534,7 @@ final class ConversationModel {
         turnID = id
         partial = ""
         turnRunning = true
+        endAfterTurn = false
         var userItem: UUID?
         if let shownItem, let i = items.firstIndex(where: { $0.id == shownItem }) {
             items[i].text = text // what was heard piece by piece gives way to the transcript of the whole
@@ -613,7 +616,8 @@ final class ConversationModel {
                 player = nil
             } else {
                 history = outcome.messages
-                answerItem = showAnswer(outcome.text, in: answerItem)
+                // Everything that was read aloud stays on screen, the text of earlier tool rounds too.
+                answerItem = showAnswer(partial.isEmpty ? outcome.text : partial, in: answerItem)
                 for sentence in splitter.flush() {
                     player?.say(sentence)
                     phase = .speaking
@@ -635,6 +639,23 @@ final class ConversationModel {
         audio.setSpeaking(false)
         audio.resetDetector()
         restAfterTurn()
+        // The goodbye has been said. A message the user finished meanwhile started a new turn, and that keeps the call going.
+        if endAfterTurn, micOn, !turnRunning { endByVoice() }
+    }
+
+    /// The agent said goodbye: the microphone turns off, and what it picked up during the goodbye (its own echo, noise,
+    /// a phrase cut short) is dropped instead of being sent.
+    private func endByVoice() {
+        endAfterTurn = false
+        interrupt()
+        hearing = false
+        _ = audio.finishPhrase()
+        dropLiveWork()
+        micOn = false
+        audio.stop()
+        UIApplication.shared.isIdleTimerDisabled = false
+        items.append(ChatItem(kind: .notice, text: tr("The conversation ended. Tap the microphone to talk again.")))
+        restAfterTurn()
     }
 
     /// The conversation no longer fits into the model: a new one with the user's last message. What was said stays on screen.
@@ -652,13 +673,24 @@ final class ConversationModel {
         turn = Task { await runTurn(id: id, before: [], message: message, userItem: userItem, work: nil) }
     }
 
+    /// The main agent's own tool for ending the spoken conversation; it stays with the main agent, never the subagent.
+    private var endTools: [AgentTool] {
+        guard settings.voice.endByVoice, micOn else { return [] }
+        return [AgentTool(def: AgentSetup.endDef, finishes: true) { [weak self] _ in
+            await self?.endAfterThisTurn()
+            return (AgentSetup.endAccepted, false)
+        }]
+    }
+
+    private func endAfterThisTurn() { endAfterTurn = true }
+
     /// Main agent's tools: with a subagent only `delegate`, without one the MCP tools themselves.
     private func mainTools() throws -> [AgentTool] {
         let phone = PhoneTools.agentTools(enabled: settings.profilePhoneTools)
         let taken = Set(phone.map(\.def.name))
         let available = phone + mcpTools.filter { !taken.contains($0.def.name) }.map { AgentTool.mcp($0) }
-        guard settings.subagentEnabled else { return available }
-        guard !available.isEmpty else { return [] }
+        guard settings.subagentEnabled else { return available + endTools }
+        guard !available.isEmpty else { return endTools }
         let choice = settings.subagent.serverID == nil ? settings.main : settings.subagent
         let sub = try client(for: choice, thinking: settings.profile.subagentThinking, missing: "Choose the subagent's server and model in Settings.")
         let system = AgentSetup.subagentSystem(instructions: subagentPrompt)
@@ -670,7 +702,7 @@ final class ConversationModel {
             await self?.startInBackground(task, runner: AgentRunner(client: sub, system: system, tools: subTools))
             return (AgentSetup.delegateStarted, false)
         }
-        return [delegate]
+        return [delegate] + endTools
     }
 
     private func startInBackground(_ task: String, runner: AgentRunner) {

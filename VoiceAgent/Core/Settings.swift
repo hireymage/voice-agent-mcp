@@ -257,6 +257,8 @@ struct VoiceSettings: Codable, Hashable {
     var silenceMs = 800.0
     /// 0…1; higher hears quieter speech.
     var sensitivity = 0.5
+    /// The agent may end the spoken conversation when the user says goodbye: it says goodbye and the microphone turns off.
+    var endByVoice = true
 }
 
 extension VoiceSettings {
@@ -267,6 +269,7 @@ extension VoiceSettings {
         bargeInOnWord = try c.decodeIfPresent(Bool.self, forKey: .bargeInOnWord) ?? false
         silenceMs = try c.decodeIfPresent(Double.self, forKey: .silenceMs) ?? 800
         sensitivity = try c.decodeIfPresent(Double.self, forKey: .sensitivity) ?? 0.5
+        endByVoice = try c.decodeIfPresent(Bool.self, forKey: .endByVoice) ?? true
     }
 }
 

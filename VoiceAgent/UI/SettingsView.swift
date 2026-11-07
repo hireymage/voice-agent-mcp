@@ -1027,6 +1027,11 @@ struct VoiceOptionsView: View {
                      : "Speaking over the agent stops it at once.")
             }
             Section {
+                Toggle("End the conversation by voice", isOn: $store.settings.voice.endByVoice)
+            } footer: {
+                Text("When you say goodbye or ask the agent to end the conversation, it says goodbye and the microphone turns off. Asking it to wait or to stop talking does not end anything.")
+            }
+            Section {
                 Toggle("Work while I talk", isOn: $store.settings.workWhileTalking)
             } footer: {
                 Text("Subagents start reading and looking things up while you are still talking, so answers come sooner. It uses more model calls. Anything that changes something waits until you finish. Takes effect the next time you turn the microphone on.")

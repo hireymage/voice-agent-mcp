@@ -1,4 +1,5 @@
 import XCTest
+import Contacts
 import EventKit
 @testable import VoiceAgent
 
@@ -230,6 +231,30 @@ final class AgentTests: XCTestCase {
         let out = try await AgentRunner(client: client, system: "", tools: tools).run(messages: [.user("q")])
         XCTAssertEqual(out.text, "Done")
         XCTAssertEqual(client.seen.messages[1].suffix(2).map(\.text), ["S", "F"])
+    }
+
+    /// What was said in an earlier tool round stays: the next round's text follows it as a new paragraph.
+    func testTextOfEveryRoundIsKeptInOrder() async throws {
+        let call = ToolCall(id: "1", name: "look", arguments: "{}")
+        let client = ScriptedClient(replies: [LLMResponse(text: "One moment.", toolCalls: [call]), LLMResponse(text: "Here it is.")])
+        let tool = AgentTool(def: ToolDef(name: "look", description: "", schema: [:])) { _ in ("x", false) }
+        let heard = TextBox()
+        _ = try await AgentRunner(client: client, system: "", tools: [tool]).run(messages: [.user("q")], onText: { heard.append($0) })
+        XCTAssertEqual(heard.value, "One moment.\n\nHere it is.")
+    }
+
+    /// A goodbye said together with the call that ends the conversation is the last word: no round asks for another.
+    func testAFinishingToolWithTextEndsTheRun() async throws {
+        let call = ToolCall(id: "1", name: "end", arguments: "{}")
+        let client = ScriptedClient(replies: [LLMResponse(text: "Bye!", toolCalls: [call]), LLMResponse(text: "Goodbye again.")])
+        let end = AgentTool(def: ToolDef(name: "end", description: "", schema: [:]), finishes: true) { _ in ("ok", false) }
+        let out = try await AgentRunner(client: client, system: "", tools: [end]).run(messages: [.user("bye")])
+        XCTAssertEqual(out.text, "Bye!")
+        XCTAssertEqual(client.seen.messages.count, 1, "the model is not asked again")
+
+        let silent = ScriptedClient(replies: [LLMResponse(text: "", toolCalls: [call]), LLMResponse(text: "Bye!")])
+        let again = try await AgentRunner(client: silent, system: "", tools: [end]).run(messages: [.user("bye")])
+        XCTAssertEqual(again.text, "Bye!", "without a goodbye yet, the model gets a round to say it")
     }
 
     func testRoundLimit() async {
@@ -663,7 +688,7 @@ final class SpokenTextTests: XCTestCase {
         StubProtocol.bodies = []
     }
 
-    @MainActor private func conversation(heard: [String], replies: [String], interruptOnWord: Bool = false, speech: Double = 1, withTools: Bool = false) -> ConversationModel {
+    @MainActor private func conversation(heard: [String], replies: [String], interruptOnWord: Bool = false, speech: Double = 1, withTools: Bool = false, endByVoice: Bool = true) -> ConversationModel {
         final class Queue: @unchecked Sendable {
             var heard: [String], replies: [String]
             init(heard: [String], replies: [String]) { self.heard = heard; self.replies = replies }
@@ -686,6 +711,10 @@ final class SpokenTextTests: XCTestCase {
                 let call = #"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"delegate","arguments":"{\"task\":\"look it up\"}"}}]}}]}"#
                 return (200, ["Content-Type": "text/event-stream"], sse([call, "[DONE]"]))
             }
+            if reply == "END" {
+                let call = #"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"e1","function":{"name":"end_conversation","arguments":"{}"}}]}}]}"#
+                return (200, ["Content-Type": "text/event-stream"], sse([call, "[DONE]"]))
+            }
             if reply.hasPrefix("SLOW:") {
                 reply.removeFirst(5)
                 Thread.sleep(forTimeInterval: 2.5)
@@ -704,6 +733,7 @@ final class SpokenTextTests: XCTestCase {
         settings.profiles[0].speakReplies = false
         settings.dataNoticeAccepted = true
         settings.voice.bargeInOnWord = interruptOnWord
+        settings.voice.endByVoice = endByVoice
         if withTools {
             settings.phoneTools = [PhoneTools.all[0].name]
             settings.profiles[0].mcpServers = [PhoneTools.serverID]
@@ -753,6 +783,43 @@ final class SpokenTextTests: XCTestCase {
         XCTAssertTrue(HTTPFailure(status: 400, body: #"{"error":{"message":"The input token count exceeds the maximum"}}"#).isContextLimit)
         XCTAssertFalse(HTTPFailure(status: 400, body: #"{"error":{"message":"Invalid model"}}"#).isContextLimit)
         XCTAssertFalse(HTTPFailure(status: 500, body: "context length").isContextLimit, "Only a refused request")
+    }
+
+    /// The agent ends the call with its tool: the goodbye is shown, then the microphone turns off.
+    @MainActor func testSayingGoodbyeEndsTheConversation() async {
+        let c = conversation(heard: ["Bye for now."], replies: ["END", "Bye, see you."])
+        c.hearForTesting(.started)
+        c.hearForTesting(.ended(pcm))
+        await waitForRepliesCount(2, in: c)
+        let first = StubProtocol.bodies.map { String(decoding: $0, as: UTF8.self) }.first { $0.contains("\"messages\"") } ?? ""
+        XCTAssertTrue(first.contains("end_conversation"), "offered while the microphone is on")
+        XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text), ["Bye, see you."])
+        XCTAssertFalse(c.micOn, "the microphone turns off after the goodbye")
+        XCTAssertEqual(c.items.last?.kind, .notice, "the chat says the conversation ended")
+    }
+
+    /// Without the tool call nothing ends: asking the agent to wait or be quiet keeps the microphone on.
+    @MainActor func testAnAnswerWithoutTheToolKeepsTheMicrophoneOn() async {
+        let c = conversation(heard: ["Wait, be quiet."], replies: ["All right."])
+        c.hearForTesting(.started)
+        c.hearForTesting(.ended(pcm))
+        await waitForRepliesCount(1, in: c)
+        XCTAssertTrue(c.micOn)
+    }
+
+    /// Typed with the microphone off there is no call to end, and the switch in Settings takes the tool away.
+    @MainActor func testTheEndToolIsOfferedOnlyWhileListeningAndSwitchedOn() async {
+        let c = conversation(heard: [], replies: ["Hi."])
+        c.send("Hello")
+        await waitForRepliesCount(1, in: c)
+        XCTAssertFalse(lastPrompt.contains("end_conversation"))
+
+        StubProtocol.bodies = []
+        let off = conversation(heard: ["Bye."], replies: ["Bye."], endByVoice: false)
+        off.hearForTesting(.started)
+        off.hearForTesting(.ended(pcm))
+        await waitForRepliesCount(1, in: off)
+        XCTAssertFalse(lastPrompt.contains("end_conversation"))
     }
 
     @MainActor func testGoingOnBeforeTheTranscriptIsReadyIsOneMessage() async {
@@ -906,6 +973,7 @@ final class SpokenTextTests: XCTestCase {
 
     func testOlderVoiceSettingsKeepWorking() throws {
         let v = try JSONDecoder().decode(VoiceSettings.self, from: Data(#"{"bargeIn":false,"silenceMs":900,"sensitivity":0.4}"#.utf8))
+        XCTAssertTrue(v.endByVoice, "ending by voice is on unless switched off")
         XCTAssertFalse(v.bargeIn)
         XCTAssertFalse(v.bargeInOnWord)
         XCTAssertEqual(v.silenceMs, 900)
@@ -1113,6 +1181,38 @@ final class PhoneToolsTests: XCTestCase {
         XCTAssertEqual(s.profilePhoneTools, ["list_events"])
         XCTAssertEqual(s.profile.mcpServers, [PhoneTools.serverID])
         XCTAssertTrue(s.profiles[1].mcpServers.isEmpty)
+    }
+
+    func testAContactGivesEverythingItHolds() throws {
+        let c = CNMutableContact()
+        c.givenName = "Jan"; c.familyName = "Novák"; c.nickname = "Honza"; c.jobTitle = "Truhlář"
+        c.phoneNumbers = [CNLabeledValue(label: CNLabelPhoneNumberMobile, value: CNPhoneNumber(stringValue: "+420 600 000 000"))]
+        c.birthday = DateComponents(year: 1980, month: 3, day: 7)
+        c.dates = [CNLabeledValue(label: CNLabelDateAnniversary, value: DateComponents(month: 6, day: 21) as NSDateComponents)]
+        let address = CNMutablePostalAddress(); address.street = "Hlavní 1"; address.city = "Brno"
+        c.postalAddresses = [CNLabeledValue(label: CNLabelHome, value: address)]
+        c.contactRelations = [CNLabeledValue(label: CNLabelContactRelationBrother, value: CNContactRelation(name: "Martin"))]
+        let o = try XCTUnwrap(PhoneTools.contactJSON(c).object)
+        XCTAssertEqual(o["name"]?.string, "Jan Novák")
+        XCTAssertEqual(o["nickname"]?.string, "Honza")
+        XCTAssertEqual(o["job_title"]?.string, "Truhlář")
+        XCTAssertEqual(o["birthday"]?.string, "1980-03-07")
+        XCTAssertEqual(o["dates"]?.array?.first?["value"]?.string, "--06-21", "a date without a year")
+        XCTAssertEqual(o["phones"]?.array?.first?["value"]?.string, "+420 600 000 000")
+        XCTAssertNotNil(o["phones"]?.array?.first?["label"]?.string)
+        XCTAssertTrue(o["addresses"]?.array?.first?["value"]?.string?.contains("Brno") == true)
+        XCTAssertFalse(o["addresses"]?.array?.first?["value"]?.string?.contains("\n") == true)
+        XCTAssertEqual(o["relations"]?.array?.first?["value"]?.string, "Martin")
+        XCTAssertNil(o["emails"], "fields the contact does not have are left out")
+        XCTAssertNil(o["organization"])
+    }
+
+    func testEventsCanBeSearchedByText() {
+        XCTAssertTrue(PhoneTools.contains("jan", in: ["Narozeniny: Jan Novák", nil]))
+        XCTAssertTrue(PhoneTools.contains("novak", in: [nil, "Jan Novák"]), "accents do not matter")
+        XCTAssertFalse(PhoneTools.contains("Petr", in: ["Jan Novák", nil, nil]))
+        XCTAssertEqual(PhoneTools.day(DateComponents(month: 12, day: 24)), "--12-24")
+        XCTAssertEqual(PhoneTools.day(DateComponents(year: 2026)), "")
     }
 
     func testOldSettingsHaveNoToolsOn() throws {

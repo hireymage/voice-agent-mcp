@@ -34,8 +34,8 @@ enum PhoneTools {
 
     static let all: [Tool] = [
         Tool(name: "list_events", area: .calendar, title: "Read events",
-             description: "Lists events in the device's calendar between two times.",
-             schema: object(["start": text(timeFormat), "end": text("End of the period, same format. Default: one day after start.")], required: ["start"])),
+             description: "Lists events in the device's calendar between two times, including birthdays from the contacts. With query it lists only the events whose title, place or notes contain that text, so a long period such as a whole year can be searched for a person or a subject.",
+             schema: object(["start": text(timeFormat), "end": text("End of the period, same format, at most four years after start. Default: one day after start."), "query": text("Optional text to look for, for example a name.")], required: ["start"])),
         Tool(name: "create_event", area: .calendar, title: "Add events",
              description: "Adds an event to the device's default calendar.",
              schema: object(["title": text("Title of the event."), "start": text(timeFormat), "end": text("End, same format. Default: one hour after start."), "all_day": ["type": "boolean"], "location": text("Optional place."), "notes": text("Optional notes.")], required: ["title", "start"])),
@@ -49,7 +49,7 @@ enum PhoneTools {
              description: "Marks a reminder as completed.",
              schema: object(["id": text("The id from list_reminders.")], required: ["id"])),
         Tool(name: "search_contacts", area: .contacts, title: "Search contacts",
-             description: "Finds people in the device's contacts by name, with their phone numbers and e-mail addresses.",
+             description: "Finds people in the device's contacts by name, with everything the contact holds: phone numbers, e-mail and postal addresses, birthday and other dates, organization, job, relations, web pages and social profiles.",
              schema: object(["name": text("A name or part of it.")], required: ["name"])),
     ]
 
@@ -126,7 +126,9 @@ enum PhoneTools {
         let end = try optionalDate(args, "end") ?? start.addingTimeInterval(86400)
         guard end > start else { throw ToolInput("The end must be after the start.") }
         let store = EKEventStore()
+        let query = args["query"]?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let events = store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))
+            .filter { query.isEmpty || contains(query, in: [$0.title, $0.location, $0.notes]) }
             .sorted { $0.startDate < $1.startDate }
         return ["events": .array(events.prefix(100).map { e in
             var o: [String: JSONValue] = ["title": .string(e.title ?? ""), "start": .string(format(e.startDate)), "end": .string(format(e.endDate)), "all_day": .bool(e.isAllDay), "calendar": .string(e.calendar?.title ?? "")]
@@ -196,21 +198,66 @@ enum PhoneTools {
 
     private static func searchContacts(_ args: JSONValue) async throws -> JSONValue {
         try await requireAccess(.contacts)
-        let keys: [CNKeyDescriptor] = [CNContactFormatter.descriptorForRequiredKeys(for: .fullName), CNContactOrganizationNameKey as CNKeyDescriptor, CNContactPhoneNumbersKey as CNKeyDescriptor, CNContactEmailAddressesKey as CNKeyDescriptor]
         let predicate = CNContact.predicateForContacts(matchingName: try required(args, "name"))
-        let found = try CNContactStore().unifiedContacts(matching: predicate, keysToFetch: keys)
-        let list: [JSONValue] = found.prefix(20).map { c in
-            let phones: [JSONValue] = c.phoneNumbers.map { .string($0.value.stringValue) }
-            let emails: [JSONValue] = c.emailAddresses.map { .string($0.value as String) }
-            let o: [String: JSONValue] = [
-                "name": .string(CNContactFormatter.string(from: c, style: .fullName) ?? c.organizationName),
-                "organization": .string(c.organizationName),
-                "phones": .array(phones),
-                "emails": .array(emails),
-            ]
-            return .object(o)
+        let found = try CNContactStore().unifiedContacts(matching: predicate, keysToFetch: contactKeys)
+        return ["contacts": .array(found.prefix(20).map(contactJSON))]
+    }
+
+    /// Everything a contact holds, except the note and the photo: reading the note needs an entitlement from Apple.
+    static let contactKeys: [CNKeyDescriptor] = [CNContactFormatter.descriptorForRequiredKeys(for: .fullName)] + [
+        CNContactNicknameKey, CNContactOrganizationNameKey, CNContactDepartmentNameKey, CNContactJobTitleKey,
+        CNContactPhoneNumbersKey, CNContactEmailAddressesKey, CNContactPostalAddressesKey, CNContactUrlAddressesKey,
+        CNContactBirthdayKey, CNContactDatesKey, CNContactRelationsKey, CNContactSocialProfilesKey, CNContactInstantMessageAddressesKey,
+    ].map { $0 as CNKeyDescriptor }
+
+    /// Only the fields the contact has; a birthday without a year is written --MM-DD.
+    static func contactJSON(_ c: CNContact) -> JSONValue {
+        var o: [String: JSONValue] = ["name": .string(CNContactFormatter.string(from: c, style: .fullName) ?? c.organizationName)]
+        func put(_ key: String, _ value: String) {
+            if !value.isEmpty { o[key] = .string(value) }
         }
-        return ["contacts": .array(list)]
+        func put<V: NSCopying & NSSecureCoding>(_ key: String, _ items: [CNLabeledValue<V>], _ value: (V) -> String) {
+            let list: [JSONValue] = items.compactMap { item in
+                let v = value(item.value)
+                guard !v.isEmpty else { return nil }
+                guard let label = item.label.map(CNLabeledValue<V>.localizedString(forLabel:)), !label.isEmpty else { return .string(v) }
+                return ["label": .string(label), "value": .string(v)]
+            }
+            if !list.isEmpty { o[key] = .array(list) }
+        }
+        if c.isKeyAvailable(CNContactNicknameKey) { put("nickname", c.nickname) }
+        put("organization", c.organizationName)
+        if c.isKeyAvailable(CNContactDepartmentNameKey) { put("department", c.departmentName) }
+        if c.isKeyAvailable(CNContactJobTitleKey) { put("job_title", c.jobTitle) }
+        put("phones", c.phoneNumbers) { $0.stringValue }
+        put("emails", c.emailAddresses) { $0 as String }
+        if c.isKeyAvailable(CNContactPostalAddressesKey) {
+            put("addresses", c.postalAddresses) { CNPostalAddressFormatter.string(from: $0, style: .mailingAddress).replacingOccurrences(of: "\n", with: ", ") }
+        }
+        if c.isKeyAvailable(CNContactUrlAddressesKey) { put("web", c.urlAddresses) { $0 as String } }
+        if c.isKeyAvailable(CNContactBirthdayKey), let b = c.birthday { put("birthday", day(b)) }
+        if c.isKeyAvailable(CNContactDatesKey) { put("dates", c.dates) { day($0 as DateComponents) } }
+        if c.isKeyAvailable(CNContactRelationsKey) { put("relations", c.contactRelations) { $0.name } }
+        if c.isKeyAvailable(CNContactSocialProfilesKey) {
+            put("social_profiles", c.socialProfiles) { p in [p.service, p.username.isEmpty ? p.urlString : p.username].filter { !$0.isEmpty }.joined(separator: ": ") }
+        }
+        if c.isKeyAvailable(CNContactInstantMessageAddressesKey) {
+            put("messaging", c.instantMessageAddresses) { m in [m.service, m.username].filter { !$0.isEmpty }.joined(separator: ": ") }
+        }
+        return .object(o)
+    }
+
+    /// yyyy-MM-dd, or --MM-dd when the year is not known.
+    static func day(_ d: DateComponents) -> String {
+        guard let month = d.month, let day = d.day, month != NSDateComponentUndefined, day != NSDateComponentUndefined else { return "" }
+        let md = String(format: "%02d-%02d", month, day)
+        if let year = d.year, year != NSDateComponentUndefined { return String(format: "%04d-", year) + md }
+        return "--" + md
+    }
+
+    /// Whether any of the texts contains the query, ignoring case and accents.
+    static func contains(_ query: String, in texts: [String?]) -> Bool {
+        texts.contains { $0?.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
     }
 
     // MARK: - Times

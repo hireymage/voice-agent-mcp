@@ -2,6 +2,9 @@ import Foundation
 
 struct AgentTool: Sendable {
     let def: ToolDef
+    /// Its call is the last thing to do: if the model already said something with it, no further round asks the model
+    /// again (it would only say the same once more, and what is read aloud cannot be taken back).
+    var finishes = false
     let run: @Sendable (_ arguments: String) async -> (text: String, isError: Bool)
 
     static func mcp(_ t: BoundTool, onResult: (@Sendable (String) -> Void)? = nil) -> AgentTool {
@@ -107,16 +110,24 @@ struct AgentRunner: Sendable {
         }
         var messages = start
         let defs = tools.map(\.def)
+        // Text of earlier rounds was already shown and read aloud; a later round's text follows it as a new paragraph.
+        let said = TextBox()
         for _ in 0..<maxRounds {
             try Task.checkCancellation()
             let filter = ThinkFilter()
             let collected = TextBox()
+            let show: @Sendable (String) -> Void = { visible in
+                let gap = collected.value.isEmpty && !said.value.isEmpty ? "\n\n" : ""
+                collected.append(visible)
+                said.append(gap + visible)
+                onText(gap + visible)
+            }
             var response = try await client.complete(system: system, messages: messages, tools: defs) { delta in
                 let visible = filter.push(delta)
-                if !visible.isEmpty { collected.append(visible); onText(visible) }
+                if !visible.isEmpty { show(visible) }
             }
             let rest = filter.finish()
-            if !rest.isEmpty { collected.append(rest); onText(rest) }
+            if !rest.isEmpty { show(rest) }
             response.text = collected.value
             var assistant = ChatMessage.assistant(response.text)
             assistant.toolCalls = response.toolCalls
@@ -140,6 +151,10 @@ struct AgentRunner: Sendable {
             try Task.checkCancellation()
             for (i, text, isError) in results {
                 messages.append(.toolResult(call: response.toolCalls[i], text: text, isError: isError))
+            }
+            let finished = response.toolCalls.allSatisfy { call in tools.first { $0.def.name == call.name }?.finishes == true }
+            if finished, !response.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return Outcome(messages: messages, text: response.text)
             }
         }
         throw AppError(tr("The agent stopped after %d tool rounds without an answer.", maxRounds))
@@ -222,6 +237,19 @@ enum AgentSetup {
             schema: ["type": "object", "properties": ["task": ["type": "string", "description": "The self-contained task."]], "required": ["task"]]
         )
     }
+
+    static let endName = "end_conversation"
+
+    /// Offered only while the microphone is on. Waiting, being quiet or an interruption must not end anything, so the
+    /// description draws that line; which words mean goodbye is left to the model, in any language. Qwen3.6 often
+    /// only said goodbye without calling it, hence the sentence that a goodbye alone ends nothing.
+    static let endDef = ToolDef(
+        name: endName,
+        description: "Ends the spoken conversation and turns the microphone off once your reply has been read aloud. A goodbye in your reply does not end anything by itself: whenever the user wants to end the conversation (says goodbye, asks you to end it or to switch off), call this tool and say a short goodbye. Asking you to stop talking, to be quiet, to wait or to hold on only stops your current answer and never ends the conversation; do not call this tool for that.",
+        schema: ["type": "object", "properties": [:]]
+    )
+
+    static let endAccepted = "The microphone turns off after your reply is read aloud. Say a short goodbye unless you already have; do not repeat it."
 
     static let soulLoaderSystem = "Carry out the startup instruction from the user with the available tools. When it is done, reply with the single word OK. Do nothing else."
 

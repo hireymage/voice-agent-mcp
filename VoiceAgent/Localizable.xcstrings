@@ -988,6 +988,23 @@
         }
       }
     },
+    "End the conversation by voice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End the conversation by voice"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukončit hovor hlasem"
+          }
+        }
+      }
+    },
     "Every tool is off until you turn it on. Turning one on also switches This device on in the profile you are using; other profiles choose for themselves. What a tool reads, such as your events or contacts, is sent to the AI model you chose.": {
       "extractionState": "manual",
       "localizations": {
@@ -3113,6 +3130,23 @@
         }
       }
     },
+    "The conversation ended. Tap the microphone to talk again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The conversation ended. Tap the microphone to talk again."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hovor skončil. Klepnutím na mikrofon můžete mluvit znovu."
+          }
+        }
+      }
+    },
     "The conversation no longer fit into the model, so a new one started with your last message.": {
       "extractionState": "manual",
       "localizations": {
@@ -3721,6 +3755,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Toto zařízení"
+          }
+        }
+      }
+    },
+    "When you say goodbye or ask the agent to end the conversation, it says goodbye and the microphone turns off. Asking it to wait or to stop talking does not end anything.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you say goodbye or ask the agent to end the conversation, it says goodbye and the microphone turns off. Asking it to wait or to stop talking does not end anything."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Když se rozloučíte nebo agenta požádáte o ukončení hovoru, rozloučí se a mikrofon se vypne. Žádost, ať počká nebo přestane mluvit, hovor neukončí."
           }
         }
       }
