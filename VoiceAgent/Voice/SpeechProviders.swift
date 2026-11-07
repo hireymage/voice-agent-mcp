@@ -126,6 +126,23 @@ struct AppleSTT: STTProvider {
     }
 }
 
+private struct NoAnswer: Error {}
+
+/// Lets one caller in at a time, the others wait in order.
+actor OneAtATime {
+    private var busy = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func enter() async {
+        if !busy { busy = true; return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func leave() {
+        if waiting.isEmpty { busy = false } else { waiting.removeFirst().resume() }
+    }
+}
+
 private final class RecognitionHolder: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
@@ -214,24 +231,52 @@ struct ElevenLabsTTS: TTSProvider {
     }
 }
 
-/// The phone's own voices. Rendered to a buffer, so they play through the same path as the servers' audio.
+/// The device's own voices. Rendered to a buffer, so they play through the same path as the servers' audio.
 final class AppleTTS: TTSProvider, @unchecked Sendable {
-    private let synth = AVSpeechSynthesizer()
+    private var synth = AVSpeechSynthesizer()
     private let voiceID: String
     private let language: String
+    private let gate = OneAtATime()
+    /// How long one sentence may take. Rendering takes well under a second; a synthesizer that has not answered by then
+    /// will not answer at all.
+    var patience: Duration = .seconds(10)
 
     init(voiceID: String, language: String) {
         self.voiceID = voiceID
         self.language = language
     }
 
+    /// One sentence at a time: the next sentence is rendered while the previous one plays, and a synthesizer given
+    /// a second sentence before the first has finished can leave one of them unanswered (seen on a Mac at launch).
     func synthesize(_ text: String) async throws -> AudioClip {
+        await gate.enter()
+        do {
+            let clip = try await synthesizeAlone(text)
+            await gate.leave()
+            return clip
+        } catch {
+            await gate.leave()
+            throw error
+        }
+    }
+
+    private func synthesizeAlone(_ text: String) async throws -> AudioClip {
         let voice = AVSpeechSynthesisVoice(identifier: voiceID) ?? AVSpeechSynthesisVoice(language: language.isEmpty ? Localizer.speechLanguage : language)
-        var raw = try await render(text, voice: voice, with: synth)
+        var raw: [AVAudioPCMBuffer]
+        do {
+            raw = try await render(text, voice: voice, with: synth)
+        } catch is NoAnswer {
+            raw = []
+        }
         if raw.isEmpty {
-            // The system synthesizer sometimes returns nothing; a new one usually does not.
+            // The system synthesizer sometimes returns nothing or stops answering; a new one usually does not.
             try await Task.sleep(for: .milliseconds(150))
-            raw = try await render(text, voice: voice, with: AVSpeechSynthesizer())
+            synth = AVSpeechSynthesizer()
+            do {
+                raw = try await render(text, voice: voice, with: synth)
+            } catch is NoAnswer {
+                throw AppError("Apple voice did not respond.")
+            }
         }
         guard let first = raw.first else { throw AppError("Apple voice returned no audio.") }
         let frames = raw.reduce(AVAudioFrameCount(0)) { $0 + $1.frameLength }
@@ -254,7 +299,8 @@ final class AppleTTS: TTSProvider, @unchecked Sendable {
         return try await withCheckedThrowingContinuation { c in
             var parts: [AVAudioPCMBuffer] = []
             let once = RecognitionHolder()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 30) { once.finish { c.resume(throwing: AppError("Apple voice did not respond.")) } }
+            let seconds = Double(patience.components.seconds) + Double(patience.components.attoseconds) / 1e18
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { once.finish { c.resume(throwing: NoAnswer()) } }
             synthesizer.write(utterance) { buffer in
                 guard let pcm = buffer as? AVAudioPCMBuffer else { return }
                 if pcm.frameLength == 0 { once.finish { c.resume(returning: parts) } } else { parts.append(pcm) }

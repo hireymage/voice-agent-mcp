@@ -59,7 +59,7 @@ struct LLMPreset: Identifiable {
         LLMPreset(name: "Mistral", api: .openAIChat, url: "https://api.mistral.ai/v1"),
         LLMPreset(name: "DeepSeek", api: .openAIChat, url: "https://api.deepseek.com/v1"),
         LLMPreset(name: "xAI", api: .openAIChat, url: "https://api.x.ai/v1"),
-        LLMPreset(name: "Apple (on this iPhone)", api: .apple, url: ""),
+        LLMPreset(name: "Apple (on this device)", api: .apple, url: ""),
         LLMPreset(name: "Custom (Ollama, vLLM, LM Studio…)", api: .openAIChat, url: ""),
     ]
 }
@@ -142,7 +142,7 @@ enum STTKind: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .apple: tr("Apple (on this iPhone)")
+        case .apple: tr("Apple (on this device)")
         case .openAI: tr("OpenAI-compatible")
         case .whisperCpp: tr("whisper.cpp server")
         case .elevenLabs: "ElevenLabs"
@@ -207,7 +207,7 @@ enum TTSKind: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .apple: tr("Apple (on this iPhone)")
+        case .apple: tr("Apple (on this device)")
         case .openAI: tr("OpenAI-compatible")
         case .piper: tr("Piper HTTP server")
         case .elevenLabs: "ElevenLabs"
@@ -289,7 +289,7 @@ struct AppSettings: Codable, Hashable {
     var speechKeysMoved = false
     var voice = VoiceSettings()
     var language = AppLanguage.system
-    /// The iPhone's own tools the user has turned on. A profile gets them only if it has the iPhone switched on.
+    /// The device's own tools the user has turned on. A profile gets them only if it has the device switched on.
     var phoneTools: [String] = []
     /// Subagents start looking things up while the user is still talking.
     var workWhileTalking = true
@@ -303,12 +303,18 @@ struct AppSettings: Codable, Hashable {
     }
 
     private enum LegacyKeys: String, CodingKey { case soul, voice, stt, tts }
+    /// The name Apple's model got in versions up to 1.26.45, in English and Czech.
+    private static let iPhoneNames: Set<String> = ["Apple (on this iPhone)", "Apple (v tomto iPhonu)"]
     private struct LegacyVoice: Decodable { var speakReplies: Bool? }
 
     /// Fields added in later versions fall back to their defaults instead of losing the settings.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         servers = try c.decodeIfPresent([LLMServer].self, forKey: .servers) ?? []
+        // Apple's model was named after the iPhone; the app also runs on a Mac and an iPad.
+        for i in servers.indices where servers[i].api == .apple && Self.iPhoneNames.contains(servers[i].name) {
+            servers[i].name = tr("Apple (on this device)")
+        }
         main = try c.decodeIfPresent(ModelChoice.self, forKey: .main) ?? ModelChoice()
         subagentEnabled = try c.decodeIfPresent(Bool.self, forKey: .subagentEnabled) ?? true
         subagent = try c.decodeIfPresent(ModelChoice.self, forKey: .subagent) ?? ModelChoice()
@@ -395,7 +401,7 @@ struct AppSettings: Codable, Hashable {
     var profileMCP: [MCPServer] { profileMCP(of: profile) }
     func profileMCP(of profile: AgentProfile) -> [MCPServer] { mcp.filter { profile.mcpServers.contains($0.id) } }
 
-    /// The iPhone tools the active profile has.
+    /// The device tools the active profile has.
     var profilePhoneTools: [String] { profile.mcpServers.contains(PhoneTools.serverID) ? phoneTools : [] }
 
     /// A tool you have just turned on is meant for the profile you are in, as a server you add is.
@@ -450,7 +456,7 @@ final class SettingsStore {
         Keychain.set(server.headersAccount, headers.isEmpty ? "" : String(decoding: d, as: UTF8.self))
     }
 
-    /// Imports the `{"mcpServers": {…}}` format of Pi, Claude and others. iPhone cannot run local (stdio)
+    /// Imports the `{"mcpServers": {…}}` format of Pi, Claude and others. The app cannot run local (stdio)
     /// servers, so those are reported back instead of being added.
     @discardableResult
     func importMCP(json: String) throws -> (added: [String], skipped: [String]) {

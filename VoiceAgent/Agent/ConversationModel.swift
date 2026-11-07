@@ -443,6 +443,18 @@ final class ConversationModel {
             }
         }
     }
+
+    /// For watching the chat follow a growing answer on a simulator: a question and a long answer, a word at a time.
+    func streamForTesting(_ text: String, every: Duration = .milliseconds(150)) async {
+        items.append(ChatItem(kind: .user, text: "Tell me more."))
+        var item: UUID?
+        var shown = ""
+        for word in text.split(separator: " ") {
+            shown += (shown.isEmpty ? "" : " ") + word
+            item = showAnswer(shown, in: item)
+            try? await Task.sleep(for: every)
+        }
+    }
     #endif
 
     // MARK: - While the user talks

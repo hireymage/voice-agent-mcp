@@ -25,7 +25,7 @@ struct SettingsView: View {
                     row("Subagent", value: subagentBadge) { SubagentView(store: store) }
                 }
                 Section {
-                    row("iPhone", value: "\(store.settings.phoneTools.count)") { PhoneToolsView(store: store) }
+                    row("This device", value: "\(store.settings.phoneTools.count)") { PhoneToolsView(store: store) }
                     row("MCP servers", value: "\(store.settings.mcp.count)") { MCPServersView(store: store) }
                 } header: {
                     Text("Tools")
@@ -395,7 +395,7 @@ struct MCPImportView: View {
                 } header: {
                     Text("Paste mcp.json")
                 } footer: {
-                    Text("HTTP servers are added with their headers, which are stored in the Keychain. Local (command) servers cannot run on iPhone and are skipped.")
+                    Text("HTTP servers are added with their headers, which are stored in the Keychain. Local (command) servers cannot run in this app and are skipped.")
                 }
                 if !result.isEmpty { Text(verbatim: result).font(.footnote) }
             }
@@ -632,9 +632,9 @@ struct ProfileEditor: View {
                 Text("The same levels for every model; the app sends each server what it understands. Model default sends nothing. A model that cannot switch thinking off gets its lowest level. Extra request parameters of a model take precedence.")
             }
             Section {
-                Toggle("iPhone", isOn: loads(PhoneTools.serverID))
+                Toggle("This device", isOn: loads(PhoneTools.serverID))
                 if profile.mcpServers.contains(PhoneTools.serverID), store.settings.phoneTools.isEmpty {
-                    Text("No iPhone tools are on yet. Choose them under iPhone in Settings.").font(.footnote).foregroundStyle(.secondary)
+                    Text("No tools of this device are on yet. Choose them under This device in Settings.").font(.footnote).foregroundStyle(.secondary)
                 }
                 ForEach(store.settings.mcp) { server in
                     Toggle(server.name.isEmpty ? tr("Unnamed") : server.name, isOn: loads(server.id))
@@ -675,7 +675,7 @@ struct ProfileEditor: View {
     }
 }
 
-// MARK: - iPhone tools
+// MARK: - Device tools
 
 struct PhoneToolsView: View {
     @Bindable var store: SettingsStore
@@ -685,7 +685,7 @@ struct PhoneToolsView: View {
         Form {
             Section {
             } footer: {
-                Text("Every tool is off until you turn it on. Turning one on also switches iPhone on in the profile you are using; other profiles choose for themselves. What a tool reads, such as your events or contacts, is sent to the AI model you chose.")
+                Text("Every tool is off until you turn it on. Turning one on also switches This device on in the profile you are using; other profiles choose for themselves. What a tool reads, such as your events or contacts, is sent to the AI model you chose.")
             }
             ForEach(PhoneTools.Area.allCases) { area in
                 Section {
@@ -703,7 +703,7 @@ struct PhoneToolsView: View {
                 }
             }
         }
-        .navigationTitle("iPhone")
+        .navigationTitle("This device")
     }
 
     private func binding(_ tool: PhoneTools.Tool) -> Binding<Bool> {

@@ -376,19 +376,19 @@
         }
       }
     },
-    "Apple (on this iPhone)": {
+    "Apple (on this device)": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple (on this iPhone)"
+            "value": "Apple (on this device)"
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apple (v tomto iPhonu)"
+            "value": "Apple (v tomto zařízení)"
           }
         }
       }
@@ -988,19 +988,19 @@
         }
       }
     },
-    "Every tool is off until you turn it on. Turning one on also switches iPhone on in the profile you are using; other profiles choose for themselves. What a tool reads, such as your events or contacts, is sent to the AI model you chose.": {
+    "Every tool is off until you turn it on. Turning one on also switches This device on in the profile you are using; other profiles choose for themselves. What a tool reads, such as your events or contacts, is sent to the AI model you chose.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every tool is off until you turn it on. Turning one on also switches iPhone on in the profile you are using; other profiles choose for themselves. What a tool reads, such as your events or contacts, is sent to the AI model you chose."
+            "value": "Every tool is off until you turn it on. Turning one on also switches This device on in the profile you are using; other profiles choose for themselves. What a tool reads, such as your events or contacts, is sent to the AI model you chose."
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Každý nástroj je vypnutý, dokud ho nezapnete. Zapnutím se iPhone zapne i v profilu, který právě používáte; ostatní profily si vybírají samy. To, co nástroj přečte, třeba události nebo kontakty, se posílá AI modelu, který jste vybrali."
+            "value": "Každý nástroj je vypnutý, dokud ho nezapnete. Zapnutím se Toto zařízení zapne i v profilu, který právě používáte; ostatní profily si vybírají samy. To, co nástroj přečte, třeba události nebo kontakty, se posílá AI modelu, který jste vybrali."
           }
         }
       }
@@ -1124,19 +1124,19 @@
         }
       }
     },
-    "HTTP servers are added with their headers, which are stored in the Keychain. Local (command) servers cannot run on iPhone and are skipped.": {
+    "HTTP servers are added with their headers, which are stored in the Keychain. Local (command) servers cannot run in this app and are skipped.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTP servers are added with their headers, which are stored in the Keychain. Local (command) servers cannot run on iPhone and are skipped."
+            "value": "HTTP servers are added with their headers, which are stored in the Keychain. Local (command) servers cannot run in this app and are skipped."
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTP servery se přidají i s hlavičkami, které se uloží do Klíčenky. Lokální servery spouštěné příkazem na iPhonu běžet nemohou, a proto se přeskočí."
+            "value": "HTTP servery se přidají i s hlavičkami, které se uloží do Klíčenky. Lokální servery spouštěné příkazem v této aplikaci běžet nemohou, a proto se přeskočí."
           }
         }
       }
@@ -1855,19 +1855,19 @@
         }
       }
     },
-    "No iPhone tools are on yet. Choose them under iPhone in Settings.": {
+    "No tools of this device are on yet. Choose them under This device in Settings.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No iPhone tools are on yet. Choose them under iPhone in Settings."
+            "value": "No tools of this device are on yet. Choose them under This device in Settings."
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zatím není zapnutý žádný nástroj iPhonu. Vyberte je v Nastavení v části iPhone."
+            "value": "Zatím není zapnutý žádný nástroj tohoto zařízení. Vyberte je v Nastavení v části Toto zařízení."
           }
         }
       }
@@ -1923,19 +1923,19 @@
         }
       }
     },
-    "Nothing goes to an AI service until you add one. Apple speech recognition, if you use it, follows Apple's terms. API keys stay in the Keychain on this iPhone.": {
+    "Nothing goes to an AI service until you add one. Apple speech recognition, if you use it, follows Apple's terms. API keys stay in the Keychain on this device.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nothing goes to an AI service until you add one. Apple speech recognition, if you use it, follows Apple's terms. API keys stay in the Keychain on this iPhone."
+            "value": "Nothing goes to an AI service until you add one. Apple speech recognition, if you use it, follows Apple's terms. API keys stay in the Keychain on this device."
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dokud AI službu nepřidáte, nic se jí neodesílá. Pro rozpoznávání řeči Apple, pokud ho používáte, platí podmínky Applu. API klíče zůstávají v Klíčence v tomto iPhonu."
+            "value": "Dokud AI službu nepřidáte, nic se jí neodesílá. Pro rozpoznávání řeči Apple, pokud ho používáte, platí podmínky Applu. API klíče zůstávají v Klíčence v tomto zařízení."
           }
         }
       }
@@ -2144,19 +2144,19 @@
         }
       }
     },
-    "Problem, details on iPhone": {
+    "Problem, details in the app": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Problem, details on iPhone"
+            "value": "Problem, details in the app"
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Problém, podrobnosti v iPhonu"
+            "value": "Problém, podrobnosti v aplikaci"
           }
         }
       }
@@ -3232,53 +3232,53 @@
         }
       }
     },
-    "This iPhone cannot run Apple's model.": {
+    "This device cannot run Apple's model.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone cannot run Apple's model."
+            "value": "This device cannot run Apple's model."
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tento iPhone model Apple nepodporuje."
+            "value": "Toto zařízení model Apple nepodporuje."
           }
         }
       }
     },
-    "This iPhone has no default calendar.": {
+    "This device has no default calendar.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone has no default calendar."
+            "value": "This device has no default calendar."
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tento iPhone nemá výchozí kalendář."
+            "value": "Toto zařízení nemá výchozí kalendář."
           }
         }
       }
     },
-    "This iPhone has no default reminders list.": {
+    "This device has no default reminders list.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone has no default reminders list."
+            "value": "This device has no default reminders list."
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tento iPhone nemá výchozí seznam připomínek."
+            "value": "Toto zařízení nemá výchozí seznam připomínek."
           }
         }
       }
@@ -3351,19 +3351,19 @@
         }
       }
     },
-    "Turn on Apple Intelligence in the iPhone's Settings to use Apple's model.": {
+    "Turn on Apple Intelligence in the device's Settings to use Apple's model.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn on Apple Intelligence in the iPhone's Settings to use Apple's model."
+            "value": "Turn on Apple Intelligence in the device's Settings to use Apple's model."
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro model Apple zapněte Apple Intelligence v Nastavení iPhonu."
+            "value": "Pro model Apple zapněte Apple Intelligence v Nastavení zařízení."
           }
         }
       }
@@ -3708,19 +3708,19 @@
         }
       }
     },
-    "iPhone": {
+    "This device": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone"
+            "value": "This device"
           }
         },
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone"
+            "value": "Toto zařízení"
           }
         }
       }

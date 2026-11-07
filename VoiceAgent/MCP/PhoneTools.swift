@@ -2,10 +2,10 @@ import Contacts
 import EventKit
 import Foundation
 
-/// The built-in server: tools that work with this iPhone's own data. It behaves like any MCP server for the agent
+/// The built-in server: tools that work with this device's own data. It behaves like any MCP server for the agent
 /// and for profiles, and every tool is off until the user turns it on.
 enum PhoneTools {
-    /// Stands for the iPhone in a profile's list of servers.
+    /// Stands for the device in a profile's list of servers.
     static let serverID = UUID(uuidString: "00000000-0000-0000-0000-00000000F001")!
 
     enum Area: String, CaseIterable, Identifiable {
@@ -23,7 +23,7 @@ enum PhoneTools {
     struct Tool: Identifiable {
         let name: String, area: Area, title: String, description: String, schema: JSONValue
         var id: String { name }
-        var def: ToolDef { ToolDef(name: "iphone__\(name)", description: description, schema: schema) }
+        var def: ToolDef { ToolDef(name: "device__\(name)", description: description, schema: schema) }
     }
 
     private static func object(_ properties: [String: JSONValue], required: [String] = []) -> JSONValue {
@@ -34,22 +34,22 @@ enum PhoneTools {
 
     static let all: [Tool] = [
         Tool(name: "list_events", area: .calendar, title: "Read events",
-             description: "Lists events in the iPhone calendar between two times.",
+             description: "Lists events in the device's calendar between two times.",
              schema: object(["start": text(timeFormat), "end": text("End of the period, same format. Default: one day after start.")], required: ["start"])),
         Tool(name: "create_event", area: .calendar, title: "Add events",
-             description: "Adds an event to the default iPhone calendar.",
+             description: "Adds an event to the device's default calendar.",
              schema: object(["title": text("Title of the event."), "start": text(timeFormat), "end": text("End, same format. Default: one hour after start."), "all_day": ["type": "boolean"], "location": text("Optional place."), "notes": text("Optional notes.")], required: ["title", "start"])),
         Tool(name: "list_reminders", area: .reminders, title: "Read reminders",
-             description: "Lists reminders on the iPhone that are not completed yet.",
+             description: "Lists reminders on the device that are not completed yet.",
              schema: object([:])),
         Tool(name: "create_reminder", area: .reminders, title: "Add reminders",
-             description: "Adds a reminder to the default iPhone list.",
+             description: "Adds a reminder to the device's default list.",
              schema: object(["title": text("What to be reminded of."), "due": text("Optional due time. " + timeFormat), "notes": text("Optional notes.")], required: ["title"])),
         Tool(name: "complete_reminder", area: .reminders, title: "Complete reminders",
              description: "Marks a reminder as completed.",
              schema: object(["id": text("The id from list_reminders.")], required: ["id"])),
         Tool(name: "search_contacts", area: .contacts, title: "Search contacts",
-             description: "Finds people in the iPhone contacts by name, with their phone numbers and e-mail addresses.",
+             description: "Finds people in the device's contacts by name, with their phone numbers and e-mail addresses.",
              schema: object(["name": text("A name or part of it.")], required: ["name"])),
     ]
 
@@ -139,7 +139,7 @@ enum PhoneTools {
     private static func createEvent(_ args: JSONValue) async throws -> JSONValue {
         try await requireAccess(.calendar)
         let store = EKEventStore()
-        guard let calendar = store.defaultCalendarForNewEvents else { throw AppError("This iPhone has no default calendar.") }
+        guard let calendar = store.defaultCalendarForNewEvents else { throw AppError("This device has no default calendar.") }
         let e = EKEvent(eventStore: store)
         e.calendar = calendar
         e.title = try required(args, "title")
@@ -172,7 +172,7 @@ enum PhoneTools {
     private static func createReminder(_ args: JSONValue) async throws -> JSONValue {
         try await requireAccess(.reminders)
         let store = EKEventStore()
-        guard let list = store.defaultCalendarForNewReminders() else { throw AppError("This iPhone has no default reminders list.") }
+        guard let list = store.defaultCalendarForNewReminders() else { throw AppError("This device has no default reminders list.") }
         let r = EKReminder(eventStore: store)
         r.calendar = list
         r.title = try required(args, "title")
