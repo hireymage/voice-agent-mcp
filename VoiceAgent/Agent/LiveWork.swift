@@ -17,6 +17,7 @@ final class LiveWork {
     private let tools: [AgentTool]
     private let stt: STTProvider
     private let subagentInstructions: String
+    private let lazy: Bool
     private let onText: (String) -> Void
 
     private var said = ""
@@ -34,7 +35,8 @@ final class LiveWork {
     private var replanWanted = false
 
     init(planner: LLMClient, subagent: LLMClient, tools: [AgentTool], stt: STTProvider, subagentInstructions: String,
-         onText: @escaping (String) -> Void) {
+         lazy: Bool = false, onText: @escaping (String) -> Void) {
+        self.lazy = lazy
         self.planner = planner
         self.subagent = subagent
         self.tools = tools
@@ -136,9 +138,9 @@ final class LiveWork {
         guard started.count < Self.maxTasks, !started.contains(task) else { return }
         started.append(task)
         let id = UUID()
-        let runner = AgentRunner(client: subagent, system: AgentSetup.liveSubagentSystem(instructions: subagentInstructions), tools: tools)
+        let runner = AgentRunner(client: subagent, system: AgentSetup.liveSubagentSystem(instructions: subagentInstructions), tools: tools, lazy: lazy)
         running[id] = Task { [weak self] in
-            let outcome = try? await runner.run(messages: [.user(task)])
+            let outcome = try? await runner.run(messages: [.user(AgentSetup.stamped(task))])
             guard let self else { return }
             self.running[id] = nil
             if let text = outcome?.text, !text.isEmpty, !Task.isCancelled { self.findings.append(Finding(task: task, result: text)) }

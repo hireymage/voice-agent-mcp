@@ -322,6 +322,11 @@ struct SubagentView: View {
             }
             if store.settings.subagentEnabled {
                 ModelChoiceSection(store: store, choice: $store.settings.subagent, title: "Model", sameAsMain: true)
+                Section {
+                    Toggle("Load tools on demand", isOn: $store.settings.subagentLoadsToolsOnDemand)
+                } footer: {
+                    Text("The subagent starts with only the names of the tools and a sentence about each, and reads a tool's whole description when it picks the tool. Requests stay short; picking a new tool takes one more step. Off, every tool's description goes with every request.")
+                }
             }
         }
         .navigationTitle("Subagent")
@@ -638,6 +643,15 @@ struct ProfileEditor: View {
                 }
                 ForEach(store.settings.mcp) { server in
                     Toggle(server.name.isEmpty ? tr("Unnamed") : server.name, isOn: loads(server.id))
+                    if profile.mcpServers.contains(server.id) {
+                        NavigationLink {
+                            ProfileToolsView(store: store, server: server, profileID: profile.id)
+                        } label: {
+                            let off = profile.offCount(of: server.id)
+                            LabeledContent("Tools", value: off == 0 ? tr("All") : tr("%d off", off))
+                        }
+                        .padding(.leading)
+                    }
                 }
                 if store.settings.mcp.isEmpty {
                     Text("Add servers under MCP servers in Settings.").font(.footnote).foregroundStyle(.secondary)
@@ -672,6 +686,72 @@ struct ProfileEditor: View {
             profile.mcpServers.removeAll { $0 == server }
             if on { profile.mcpServers.append(server) }
         }
+    }
+}
+
+// MARK: - Tools of a server for one profile
+
+/// Which tools of one MCP server the profile's agents get. The list comes from the server, so a tool added there
+/// later is on until switched off.
+struct ProfileToolsView: View {
+    let store: SettingsStore
+    let server: MCPServer
+    let profileID: UUID
+    @State private var tools: [BoundTool] = []
+    @State private var status = ""
+    @State private var loading = true
+
+    var body: some View {
+        Form {
+            Section {
+                if loading {
+                    HStack { ProgressView(); Text("Connecting…").foregroundStyle(.secondary) }
+                }
+                if !status.isEmpty { Text(verbatim: status).font(.footnote).foregroundStyle(.red) }
+                if !tools.isEmpty {
+                    let on = tools.filter { profile.gets(tool: $0.remoteName, of: server.id) }
+                    LabeledContent("Agent gets", value: tr("%1$d of %2$d tools, about %3$d tokens", on.count, tools.count, on.map(\.tokenEstimate).reduce(0, +)))
+                    Button("Turn all on") { for t in tools { set(t.remoteName, on: true) } }
+                    Button("Turn all off") { for t in tools { set(t.remoteName, on: false) } }
+                }
+            } footer: {
+                Text("Each tool's description goes to the model with every request of the agent, so fewer tools make requests shorter and faster. Loading the soul still sees all tools.")
+            }
+            if !tools.isEmpty {
+                Section("Tools") {
+                    ForEach(tools, id: \.remoteName) { tool in
+                        Toggle(isOn: Binding { profile.gets(tool: tool.remoteName, of: server.id) } set: { set(tool.remoteName, on: $0) }) {
+                            VStack(alignment: .leading) {
+                                Text(verbatim: tool.remoteName)
+                                Text(tr("about %d tokens", tool.tokenEstimate)).font(.caption).foregroundStyle(.secondary)
+                                if !tool.def.description.isEmpty {
+                                    Text(verbatim: tool.def.description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(server.name.isEmpty ? tr("Unnamed") : server.name)
+        .task { await load() }
+    }
+
+    /// Read from the store in the body, so that every change shows at once.
+    private var profile: AgentProfile { store.settings.profiles.first { $0.id == profileID } ?? AgentProfile() }
+
+    private func set(_ tool: String, on: Bool) {
+        guard let i = store.settings.profiles.firstIndex(where: { $0.id == profileID }) else { return }
+        store.settings.profiles[i].set(tool: tool, of: server.id, on: on)
+    }
+
+    private func load() async {
+        loading = true
+        let store = self.store
+        let result = await MCPTools.connect([server]) { store.headers(of: $0) }
+        tools = result.tools.sorted { $0.remoteName < $1.remoteName }
+        status = result.failures.joined(separator: "\n")
+        loading = false
     }
 }
 

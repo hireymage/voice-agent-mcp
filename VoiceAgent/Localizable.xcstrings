@@ -2,6 +2,23 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "%1$d of %2$d tools, about %3$d tokens": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d of %2$d tools, about %3$d tokens"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d z %2$d nástrojů, asi %3$d tokenů"
+          }
+        }
+      }
+    },
     "%@: set the server address in Settings.": {
       "extractionState": "manual",
       "localizations": {
@@ -15,6 +32,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@: nastavte v Nastavení adresu serveru."
+          }
+        }
+      }
+    },
+    "%d off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d off"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d vypnuto"
           }
         }
       }
@@ -49,6 +83,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vypnutý nástroj pro agenta neexistuje."
+          }
+        }
+      }
+    },
+    "about %d tokens": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "about %d tokens"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "asi %d tokenů"
+          }
+        }
+      }
+    },
+    "Agent gets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent gets"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent dostane"
+          }
+        }
+      }
+    },
+    "All": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Všechny"
           }
         }
       }
@@ -852,6 +937,23 @@
         }
       }
     },
+    "Copy conversation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy conversation"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopírovat rozhovor"
+          }
+        }
+      }
+    },
     "Custom (Ollama, vLLM, LM Studio…)": {
       "extractionState": "manual",
       "localizations": {
@@ -899,6 +1001,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hotovo"
+          }
+        }
+      }
+    },
+    "Each tool's description goes to the model with every request of the agent, so fewer tools make requests shorter and faster. Loading the soul still sees all tools.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each tool's description goes to the model with every request of the agent, so fewer tools make requests shorter and faster. Loading the soul still sees all tools."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Popis každého nástroje jde modelu s každým dotazem agenta, takže méně nástrojů znamená kratší a rychlejší dotazy. Načtení soulu dál vidí všechny nástroje."
           }
         }
       }
@@ -1511,6 +1630,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Načíst přes MCP"
+          }
+        }
+      }
+    },
+    "Load tools on demand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Load tools on demand"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Načítat nástroje podle potřeby"
           }
         }
       }
@@ -2467,6 +2603,40 @@
         }
       }
     },
+    "Share conversation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share conversation"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sdílet rozhovor"
+          }
+        }
+      }
+    },
+    "Share…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share…"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sdílet…"
+          }
+        }
+      }
+    },
     "Skipped: %@": {
       "extractionState": "manual",
       "localizations": {
@@ -3232,6 +3402,23 @@
         }
       }
     },
+    "The subagent starts with only the names of the tools and a sentence about each, and reads a tool's whole description when it picks the tool. Requests stay short; picking a new tool takes one more step. Off, every tool's description goes with every request.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The subagent starts with only the names of the tools and a sentence about each, and reads a tool's whole description when it picks the tool. Requests stay short; picking a new tool takes one more step. Off, every tool's description goes with every request."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagent začne jen s názvy nástrojů a větou o každém a celý popis nástroje si přečte, až ho vybere. Dotazy zůstanou krátké, výběr nového nástroje stojí jeden krok navíc. Vypnuto: popis každého nástroje jde s každým dotazem."
+          }
+        }
+      }
+    },
     "Thinking": {
       "extractionState": "manual",
       "localizations": {
@@ -3381,6 +3568,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Přepisuji…"
+          }
+        }
+      }
+    },
+    "Turn all off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn all off"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vypnout všechny"
+          }
+        }
+      }
+    },
+    "Turn all on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn all on"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapnout všechny"
           }
         }
       }
@@ -3721,6 +3942,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pracovat, zatímco mluvím"
+          }
+        }
+      }
+    },
+    "You": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ty"
           }
         }
       }

@@ -101,8 +101,19 @@ struct ChatView: View {
             .navigationTitle("Voice Agent")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItemGroup(placement: .topBarLeading) {
                     Button("New conversation", systemImage: "square.and.pencil") { conversation.startOver() }
+                    // A selection cannot span several messages, so the whole conversation is copied or sent from here.
+                    let transcript = ChatItem.transcript(conversation.items, user: tr("You"), agent: store.settings.profile.name.isEmpty ? tr("Agent") : store.settings.profile.name)
+                    Menu {
+                        Button("Copy conversation", systemImage: "doc.on.doc") { UIPasteboard.general.string = transcript }
+                        ShareLink(item: transcript, preview: SharePreview(tr("Conversation"))) {
+                            Label("Share…", systemImage: "square.and.arrow.up")
+                        }
+                    } label: {
+                        Label("Share conversation", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(transcript.isEmpty)
                 }
                 ToolbarItem(placement: .principal) { profileMenu }
                 ToolbarItem(placement: .topBarTrailing) {

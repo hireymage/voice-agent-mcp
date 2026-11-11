@@ -92,7 +92,7 @@ final class MacProbeTests: XCTestCase {
 
     /// The model is told the time of day too, not only the date.
     func testDateLineHasTheTimeOnAMac() {
-        let line = AgentSetup.dateLine()
+        let line = AgentSetup.clockReading()
         let hour = Calendar.current.component(.hour, from: Date())
         XCTAssertTrue(line.contains(String(hour)) || line.contains(String(format: "%02d", hour)) || line.contains(String(hour % 12 == 0 ? 12 : hour % 12)), line)
     }

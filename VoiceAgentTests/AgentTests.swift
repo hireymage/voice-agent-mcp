@@ -257,6 +257,93 @@ final class AgentTests: XCTestCase {
         XCTAssertEqual(again.text, "Bye!", "without a goodbye yet, the model gets a round to say it")
     }
 
+    /// A call the model wrote into its text (some servers pass on one that names an undeclared tool) is taken out of what
+    /// is shown and read aloud, and run like any call.
+    func testAToolCallWrittenAsTextIsRunNotShown() async throws {
+        let written = "Moment.\n<tool_call>\n<function=notes>\n<parameter=action>\nsearch\n</parameter>\n<parameter=limit>\n5\n</parameter>\n</function>\n</tool_call>"
+        let client = ScriptedClient(replies: [LLMResponse(text: written), LLMResponse(text: "Máš dvě poznámky.")])
+        let got = TextBox()
+        let notes = AgentTool(def: ToolDef(name: "notes", description: "", schema: [:])) { args in got.append(args); return ("two notes", false) }
+        let heard = TextBox()
+        let out = try await AgentRunner(client: client, system: "", tools: [notes]).run(messages: [.user("q")], onText: { heard.append($0) })
+        XCTAssertEqual(out.text, "Máš dvě poznámky.")
+        XCTAssertFalse(heard.value.contains("tool_call"), heard.value)
+        XCTAssertFalse(heard.value.contains("function="), heard.value)
+        XCTAssertTrue(heard.value.hasPrefix("Moment."))
+        XCTAssertEqual(JSONValue.parse(got.value), JSONValue.parse(#"{"action":"search","limit":5}"#))
+        XCTAssertEqual(client.seen.messages[1].last?.text, "two notes", "the result goes back to the model")
+    }
+
+    func testToolCallTextFilter() {
+        func run(_ parts: [String]) -> (String, [ToolCall]) {
+            let f = ToolCallTextFilter()
+            let text = parts.map { f.push($0) }.joined() + f.finish()
+            return (text, f.calls)
+        }
+        let (a, ac) = run(["Hi <tool", "_call><function=x><parameter=q>", "a b</parameter></function></tool_", "call> there"])
+        XCTAssertEqual(a, "Hi  there")
+        XCTAssertEqual(ac.map(\.name), ["x"])
+        XCTAssertEqual(JSONValue.parse(ac[0].arguments), JSONValue.parse(#"{"q":"a b"}"#))
+        let (b, bc) = run([#"<tool_call>{"name": "y", "arguments": {"n": 1}}</tool_call>"#])
+        XCTAssertEqual(b, "")
+        XCTAssertEqual(bc.map(\.name), ["y"])
+        XCTAssertEqual(JSONValue.parse(bc[0].arguments), JSONValue.parse(#"{"n":1}"#))
+        let (c, cc) = run(["<tool_call><function=z></function>"])
+        XCTAssertEqual(c, "")
+        XCTAssertEqual(cc.map(\.name), ["z"], "a block never closed still counts")
+        XCTAssertEqual(run(["a < b, and <tool_c is not a tag"]).0, "a < b, and <tool_c is not a tag")
+        XCTAssertTrue(run(["<tool_call>nonsense</tool_call>ok"]).1.isEmpty)
+    }
+
+    /// A hidden tool is not offered to the model, but runs when the model calls it.
+    func testAHiddenToolIsNotOfferedButRuns() async throws {
+        let client = ScriptedClient(replies: [LLMResponse(text: "", toolCalls: [ToolCall(id: "1", name: "secret", arguments: "{}")]), LLMResponse(text: "Done")])
+        let open = AgentTool(def: ToolDef(name: "open", description: "", schema: [:])) { _ in ("o", false) }
+        let secret = AgentTool(def: ToolDef(name: "secret", description: "", schema: [:]), hidden: true) { _ in ("s", false) }
+        let out = try await AgentRunner(client: client, system: "", tools: [open, secret]).run(messages: [.user("q")])
+        XCTAssertEqual(out.text, "Done")
+        XCTAssertEqual(client.seen.tools[0], ["open"])
+        XCTAssertEqual(client.seen.messages[1].last?.text, "s")
+    }
+
+    /// The whole conversation to copy or share: who said what, in order, without the app's own notices.
+    func testTheConversationAsText() {
+        let items = [ChatItem(kind: .user, text: "Ahoj"), ChatItem(kind: .notice, text: "Nový rozhovor"), ChatItem(kind: .assistant, text: " Dobrý den.\nCo pro vás? "),
+                     ChatItem(kind: .error, text: "Chyba"), ChatItem(kind: .assistant, text: "  ")]
+        XCTAssertEqual(ChatItem.transcript(items, user: "Ty", agent: "Agent"), "Ty: Ahoj\n\nAgent: Dobrý den.\nCo pro vás?")
+        XCTAssertEqual(ChatItem.transcript([], user: "Ty", agent: "Agent"), "")
+    }
+
+    /// With tools on demand every tool goes to the model with one sentence and no parameters, the same list all the
+    /// way (so a server can reuse the prompt); `load_tools` answers with a tool's whole description and parameters.
+    func testToolsLoadOnDemand() async throws {
+        let client = ScriptedClient(replies: [
+            LLMResponse(text: "", toolCalls: [ToolCall(id: "1", name: AgentRunner.loadToolsName, arguments: #"{"names":["name_days","nope"]}"#)]),
+            LLMResponse(text: "", toolCalls: [ToolCall(id: "2", name: "name_days", arguments: #"{"date":"2026-11-11"}"#)]),
+            LLMResponse(text: "Svátek má Martin."),
+        ])
+        let got = TextBox()
+        let days = AgentTool(def: ToolDef(name: "name_days", description: "Finds who has a name day. Give it a date in ISO form and a lot more detail.", schema: ["type": "object", "properties": ["date": ["type": "string"]]])) { args in got.append(args); return ("Martin", false) }
+        let people = AgentTool(def: ToolDef(name: "people", description: "Looks up people.", schema: [:])) { _ in ("p", false) }
+        let out = try await AgentRunner(client: client, system: "", tools: [days, people], lazy: true).run(messages: [.user("Kdo má svátek?")])
+        XCTAssertEqual(out.text, "Svátek má Martin.")
+        XCTAssertEqual(client.seen.tools[0], [AgentRunner.loadToolsName, "name_days", "people"])
+        XCTAssertEqual(Set(client.seen.tools.map { $0 }).count, 1, "the same tools in every request")
+        let details = client.seen.messages[1].last?.text ?? ""
+        XCTAssertTrue(details.contains("a lot more detail") && details.contains(#""date""#), details)
+        XCTAssertTrue(details.contains("Not among your tools: nope"))
+        XCTAssertEqual(got.value, #"{"date":"2026-11-11"}"#)
+        XCTAssertEqual(AgentRunner.briefDef(days.def).description, "Finds who has a name day.")
+    }
+
+    func testABriefDescription() {
+        XCTAssertEqual(AgentRunner.brief("Finds notes. Use it for anything written down."), "Finds notes.")
+        XCTAssertEqual(AgentRunner.brief("First line\nSecond line"), "First line")
+        XCTAssertEqual(AgentRunner.brief("Version 1.5 of the tool"), "Version 1.5 of the tool")
+        XCTAssertEqual(AgentRunner.brief(String(repeating: "a", count: 300)).count, 100)
+        XCTAssertEqual(AgentRunner.requestedNames(#"{"names":"a, b"}"#), ["a", "b"])
+    }
+
     func testRoundLimit() async {
         let client = ScriptedClient(replies: [LLMResponse(text: "", toolCalls: [ToolCall(id: "1", name: "t", arguments: "{}")])])
         let tool = AgentTool(def: ToolDef(name: "t", description: "", schema: [:])) { _ in ("x", false) }
@@ -634,16 +721,19 @@ final class GreetingTests: XCTestCase {
         XCTAssertEqual(again.profiles[0].subagentSoul.text, "Answer briefly.")
     }
 
-    /// The time goes to the model as a reading of the device clock, with its time zone, in every system text.
+    /// The time goes to the model as a reading of the device clock, with its time zone, at the start of each user
+    /// message; the system texts only say so, and stay the same from minute to minute.
     func testTheModelIsToldTheTimeOfDay() throws {
         let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Prague"))
         var parts = DateComponents(calendar: Calendar(identifier: .gregorian), timeZone: zone, year: 2026, month: 11, day: 7, hour: 17, minute: 2)
         parts.second = 0
         let now = try XCTUnwrap(parts.date)
-        let line = AgentSetup.dateLine(now, timeZone: zone)
-        XCTAssertEqual(line, "The user's device clock shows it is now 17:02 on Saturday 7 November 2026 (time zone Europe/Prague). This is the real current local time; use it whenever the date or time matters.")
-        XCTAssertTrue(AgentSetup.mainSystem(soul: "", spoken: false, listening: false).contains("device clock shows it is now"))
-        XCTAssertTrue(AgentSetup.subagentSystem(instructions: "").contains("device clock shows it is now"))
+        XCTAssertEqual(AgentSetup.stamped("Kolik je hodin?", now: now, timeZone: zone), "[Device clock: 17:02 on Saturday 7 November 2026, time zone Europe/Prague]\nKolik je hodin?")
+        XCTAssertEqual(AgentSetup.unstamped(AgentSetup.stamped("a", now: now) + "\n\n" + AgentSetup.stamped("b")), "a\n\nb")
+        for system in [AgentSetup.mainSystem(soul: "S", spoken: true, listening: true), AgentSetup.subagentSystem(instructions: "")] {
+            XCTAssertTrue(system.contains(AgentSetup.clockRule))
+            XCTAssertFalse(system.contains("Device clock:"), "no time that changes in the system text")
+        }
     }
 
     func testApplesModelIsNoLongerNamedAfterTheIPhone() throws {
@@ -710,6 +800,11 @@ final class SpokenTextTests: XCTestCase {
             if reply == "DELEGATE" {
                 let call = #"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"delegate","arguments":"{\"task\":\"look it up\"}"}}]}}]}"#
                 return (200, ["Content-Type": "text/event-stream"], sse([call, "[DONE]"]))
+            }
+            if reply.hasPrefix("TEXTCALL:") {
+                let name = reply.dropFirst("TEXTCALL:".count)
+                let text = "<tool_call>\\n<function=\(name)>\\n<parameter=start>\\n2026-11-11\\n</parameter>\\n</function>\\n</tool_call>"
+                return (200, ["Content-Type": "text/event-stream"], sse([#"{"choices":[{"index":0,"delta":{"content":"\#(text)"}}]}"#, "[DONE]"]))
             }
             if reply == "END" {
                 let call = #"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"e1","function":{"name":"end_conversation","arguments":"{}"}}]}}]}"#
@@ -796,6 +891,21 @@ final class SpokenTextTests: XCTestCase {
         XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text), ["Bye, see you."])
         XCTAssertFalse(c.micOn, "the microphone turns off after the goodbye")
         XCTAssertEqual(c.items.last?.kind, .notice, "the chat says the conversation ended")
+    }
+
+    /// Turning the microphone off only stops listening: the answer being worked on still comes.
+    @MainActor func testTurningTheMicrophoneOffLetsTheAnswerFinish() async throws {
+        let c = conversation(heard: ["Tell me about the homelab."], replies: ["SLOW:Six machines."])
+        c.hearForTesting(.started)
+        c.hearForTesting(.ended(pcm))
+        await waitUntil { c.isTurnRunning }
+        try await Task.sleep(for: .milliseconds(300))
+        c.toggleMic()
+        XCTAssertFalse(c.micOn)
+        XCTAssertTrue(c.isTurnRunning, "the answer goes on")
+        await waitUntil { !c.isTurnRunning }
+        XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text), ["Six machines."])
+        XCTAssertFalse(c.items.contains { $0.kind == .error })
     }
 
     /// Without the tool call nothing ends: asking the agent to wait or be quiet keeps the microphone on.
@@ -909,7 +1019,8 @@ final class SpokenTextTests: XCTestCase {
         c.send("And the weather.")
         await waitForRepliesCount(2, in: c)
         await waitUntil { !c.isTurnRunning }
-        XCTAssertTrue(lastPrompt.contains(#"Tell me about the homelab.\n\nAnd the weather."#), "one message with both: \(lastPrompt.suffix(400))")
+        // One message with both, each with the time it was sent.
+        XCTAssertNotNil(lastPrompt.range(of: #"Tell me about the homelab\.\\n\\n\[Device clock: [^\]]*\]\\nAnd the weather\."#, options: .regularExpression), "one message with both: \(lastPrompt.suffix(400))")
     }
 
     @MainActor func testAnAnsweredMessageStaysItsOwn() async {
@@ -936,6 +1047,63 @@ final class SpokenTextTests: XCTestCase {
         XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text), ["On it.", "Fine, thanks.", "Here is what I found."])
         XCTAssertEqual(c.items.filter { $0.kind == .user }.map(\.text), ["Find it in my memory.", "How are you?"], "the report is not a bubble of the user's")
         XCTAssertTrue(lastPrompt.contains("Found it."), "the report goes to the main agent")
+    }
+
+    /// The main agent's prompt only grows: after its subagent's request, the next one starts exactly like the last
+    /// one, system text included, so a server that parked the conversation can take it up again instead of reading
+    /// it all from the start. Each user message carries the time it was sent.
+    @MainActor func testTheMainAgentsPromptOnlyGrowsAroundItsSubagent() async throws {
+        let c = conversation(heard: [], replies: ["DELEGATE", "On it.", "Here is what I found."], withTools: true)
+        c.send("Find it in my memory.")
+        await waitUntil { c.items.contains { $0.text == "Here is what I found." } && !c.isTurnRunning }
+        let main: [[Any]] = StubProtocol.bodies.compactMap { body in
+            let text = String(decoding: body, as: UTF8.self)
+            guard !text.contains("You are a subagent"), !text.contains("You listen to a user of a voice assistant"),
+                  let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else { return nil }
+            return json["messages"] as? [Any]
+        }
+        XCTAssertEqual(main.count, 3, "the call, the answer after it, the report")
+        guard main.count == 3 else { return }
+        for (earlier, later) in zip(main, main.dropFirst()) {
+            XCTAssertGreaterThan(later.count, earlier.count)
+            for (a, b) in zip(earlier, later) { XCTAssertEqual(a as? NSDictionary, b as? NSDictionary) }
+        }
+        let user = (main[0].compactMap { $0 as? [String: Any] }.first { $0["role"] as? String == "user" })?["content"] as? String ?? ""
+        XCTAssertTrue(user.hasPrefix("[Device clock: ") && user.hasSuffix("Find it in my memory."), user)
+    }
+
+    /// With a subagent, the main agent may call one of the subagent's tools itself, here written as text the way
+    /// Some servers pass it on: the call becomes the subagent's task, nothing of it is shown, and the report comes.
+    @MainActor func testASubagentToolCalledByTheMainAgentGoesToTheSubagent() async {
+        let tool = "device__" + PhoneTools.all[0].name
+        let c = conversation(heard: [], replies: ["TEXTCALL:\(tool)", "On it.", "Here is what I found."], withTools: true)
+        c.send("Find my events.")
+        await waitUntil { c.items.contains { $0.text == "Here is what I found." } && !c.isTurnRunning }
+        XCTAssertFalse(c.items.contains { $0.text.contains("tool_call") || $0.text.contains("function=") }, "\(c.items.map(\.text))")
+        XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text), ["On it.", "Here is what I found."])
+        let task = StubProtocol.bodies.map { String(decoding: $0, as: UTF8.self) }.first { $0.contains("You are a subagent") } ?? ""
+        XCTAssertTrue(task.contains("Find my events.") && task.contains(tool), "the subagent gets what the user asked and the tool")
+    }
+
+    /// A report the agent no longer needs to tell (the user lost interest, or it was said already) can be left
+    /// unsaid, also when the user writes instead of speaking.
+    @MainActor func testAReportNoLongerWantedIsNotTold() async {
+        let c = conversation(heard: [], replies: ["DELEGATE", "On it.", "[SILENT]"], withTools: true)
+        c.send("Find it in my memory.")
+        await waitUntil { c.activeSubagents == 0 && StubProtocol.bodies.count >= 4 && !c.isTurnRunning }
+        XCTAssertEqual(c.items.filter { $0.kind == .assistant }.map(\.text), ["On it."])
+        XCTAssertFalse(c.items.contains { $0.text.contains("SILENT") || $0.kind == .error })
+        XCTAssertTrue(lastPrompt.contains("no longer wants it"), "the report says it may be left unsaid")
+    }
+
+    /// The same task asked for again while it runs does not start a second subagent.
+    @MainActor func testTheSameTaskDoesNotRunTwice() async {
+        let c = conversation(heard: [], replies: ["DELEGATE", "DELEGATE", "On it.", "Here is what I found."], withTools: true)
+        c.send("Find it in my memory.")
+        await waitUntil { c.items.contains { $0.text == "Here is what I found." } && !c.isTurnRunning }
+        let subagents = StubProtocol.bodies.filter { String(decoding: $0, as: UTF8.self).contains("You are a subagent") }
+        XCTAssertEqual(subagents.count, 1)
+        XCTAssertTrue(StubProtocol.bodies.contains { String(decoding: $0, as: UTF8.self).contains("already running") })
     }
 
     @MainActor func testStopEndsTheAnswerNotTheBackgroundWork() async {
@@ -1213,6 +1381,26 @@ final class PhoneToolsTests: XCTestCase {
         XCTAssertFalse(PhoneTools.contains("Petr", in: ["Jan Novák", nil, nil]))
         XCTAssertEqual(PhoneTools.day(DateComponents(month: 12, day: 24)), "--12-24")
         XCTAssertEqual(PhoneTools.day(DateComponents(year: 2026)), "")
+    }
+
+    /// A profile switches single MCP tools off for its agents; the choice is saved and older settings get all tools.
+    func testAProfileChoosesItsMCPTools() throws {
+        let server = UUID(), other = UUID()
+        var p = AgentProfile(name: "Agent")
+        XCTAssertTrue(p.gets(tool: "notes", of: server))
+        p.set(tool: "migrate_schema", of: server, on: false)
+        p.set(tool: "migrate_schema", of: server, on: false)
+        p.set(tool: "notes", of: other, on: false)
+        XCTAssertFalse(p.gets(tool: "migrate_schema", of: server))
+        XCTAssertTrue(p.gets(tool: "migrate_schema", of: other), "per server")
+        XCTAssertEqual(p.offCount(of: server), 1)
+        let back = try JSONDecoder().decode(AgentProfile.self, from: JSONEncoder().encode(p))
+        XCTAssertFalse(back.gets(tool: "migrate_schema", of: server))
+        back.offTools.forEach { XCTAssertTrue($0.contains("/")) }
+        p.set(tool: "migrate_schema", of: server, on: true)
+        XCTAssertTrue(p.gets(tool: "migrate_schema", of: server))
+        let old = try JSONDecoder().decode(AgentProfile.self, from: Data(#"{"name":"Old"}"#.utf8))
+        XCTAssertTrue(old.offTools.isEmpty)
     }
 
     func testOldSettingsHaveNoToolsOn() throws {
