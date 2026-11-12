@@ -7,6 +7,20 @@ struct ChatItem: Identifiable, Hashable {
     let id = UUID()
     let kind: Kind
     var text: String
+
+    /// The conversation as plain text to copy or share: what the user and the agent said, in order, each with who
+    /// said it. Notices and errors of the app are left out.
+    static func transcript(_ items: [ChatItem], user: String, agent: String) -> String {
+        items.compactMap { item in
+            let text = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            switch item.kind {
+            case .user: return "\(user): \(text)"
+            case .assistant: return "\(agent): \(text)"
+            case .notice, .error: return nil
+            }
+        }.joined(separator: "\n\n")
+    }
 }
 
 @MainActor @Observable
@@ -28,6 +42,8 @@ final class ConversationModel {
     }
 
     private(set) var items: [ChatItem] = []
+    /// The agent called end_conversation: the microphone turns off once its goodbye has been said.
+    private var endAfterTurn = false
     private(set) var phase = Phase.idle
     private(set) var micOn = false
     private(set) var carSession = false
@@ -67,6 +83,12 @@ final class ConversationModel {
     /// Subagents working in the background, and the reports of those that finished, waiting for a quiet moment.
     private var background: [UUID: Task<Void, Never>] = [:]
     private var reports: [String] = []
+    /// The tasks of the subagents still at work, so the same one does not start twice.
+    private var runningTasks: [UUID: String] = [:]
+    /// The microphone was turned on while an answer was read aloud; it starts listening once the answer is done.
+    private var micJoinPending = false
+    /// The turn only passes on subagents' reports: the agent may stay silent, a report it no longer needs to tell.
+    private var reportsOnlyTurn = false
     private var hearingOverWork = false
     /// How much the audio sounds like speech, 0…1; tests replace it.
     var speechConfidence: @Sendable ([Int16]) -> Double = { SpeechCheck.confidence($0) }
@@ -80,6 +102,11 @@ final class ConversationModel {
     private struct Prepared: Equatable { let profile: UUID; let mcp: [MCPServer]; let soul: SoulSettings; let subagentSoul: SoulSettings; let revision: Int; let phone: [String] }
     private var prepared: Prepared?
     private var mcpTools: [BoundTool] = []
+    /// The MCP tools the profile gives its agents; loading the soul sees them all.
+    private var agentMCP: [BoundTool] {
+        let profile = settings.profile
+        return mcpTools.filter { t in t.serverID.map { profile.gets(tool: t.remoteName, of: $0) } ?? true }
+    }
     private var soulPrompt = ""
     private var subagentPrompt = ""
 
@@ -101,6 +128,7 @@ final class ConversationModel {
         background.values.forEach { $0.cancel() }
         background = [:]
         delegated = []
+        runningTasks = [:]
         reports = []
         setAside = ""
         history = []
@@ -187,11 +215,12 @@ final class ConversationModel {
         hearing = false
         let unfinished = audio.finishPhrase()
         micOn = false
-        if turnRunning { interrupt() }
-        audio.stop()
+        // Only listening stops: an answer being worked on or read aloud goes on, and the engine with it until it is
+        // done (restAfterTurn stops it then). Stopping the answer is the stop button's job.
+        if !turnRunning { audio.stop() }
         UIApplication.shared.isIdleTimerDisabled = false
         restAfterTurn()
-        if !turnRunning, let unfinished {
+        if let unfinished {
             live?.stoppedSpeaking()
             transcribe(unfinished)
         } else if transcription != nil {
@@ -207,7 +236,14 @@ final class ConversationModel {
                 guard await AVAudioApplication.requestRecordPermission() else { throw AppError("Microphone access is off. Turn it on in iOS Settings.") }
                 if settings.stt.kind == .apple, !(await AppleSTT.requestPermission()) { throw AppError("Speech recognition access is off. Turn it on in iOS Settings.") }
                 audio.configure(silenceMs: settings.voice.silenceMs, sensitivity: settings.voice.sensitivity, phrases: settings.workWhileTalking && settings.subagentEnabled)
-                try audio.ensureRunning(mic: true)
+                // Turning the microphone on rebuilds the engine, which cut off the answer being read aloud, and the
+                // agent's own voice then counted as the user speaking over it and stopped the work too. While an
+                // answer is under way the microphone joins once it is done (restAfterTurn).
+                if turnRunning, audio.running, !audio.listening {
+                    micJoinPending = true
+                } else {
+                    try audio.ensureRunning(mic: true)
+                }
                 micOn = true
                 UIApplication.shared.isIdleTimerDisabled = !carSession
                 restAfterTurn()
@@ -470,10 +506,10 @@ final class ConversationModel {
         guard settings.subagentEnabled, prepared == wantedPreparation else { return nil }
         let phone = PhoneTools.agentTools(enabled: settings.profilePhoneTools.filter(PhoneTools.readsOnly))
         let taken = Set(phone.map(\.def.name))
-        let reading = phone + mcpTools.filter { $0.readOnly != false && !taken.contains($0.def.name) }.map { AgentTool.mcp($0) }
+        let reading = phone + agentMCP.filter { $0.readOnly != false && !taken.contains($0.def.name) }.map { AgentTool.mcp($0) }
         let choice = settings.subagent.serverID == nil ? settings.main : settings.subagent
         guard !reading.isEmpty, let subagent = try? client(for: choice, thinking: settings.profile.subagentThinking, missing: "") else { return nil }
-        return LiveWork(planner: subagent, subagent: subagent, tools: reading, stt: makeSTT(settings.stt), subagentInstructions: subagentPrompt, onText: { [weak self] text in
+        return LiveWork(planner: subagent, subagent: subagent, tools: reading, stt: makeSTT(settings.stt), subagentInstructions: subagentPrompt, lazy: settings.subagentLoadsToolsOnDemand, onText: { [weak self] text in
             self?.showLiveText(text)
         })
     }
@@ -496,6 +532,20 @@ final class ConversationModel {
     }
 
     private func restAfterTurn() {
+        // The microphone went off while the agent was answering: the engine that listened stops once it is done.
+        if !turnRunning, !micOn, speechTest == nil, audio.listening { audio.stop() }
+        // The microphone went on while the agent was answering: it starts listening now that the answer is done.
+        if micJoinPending, !turnRunning {
+            micJoinPending = false
+            if micOn {
+                do {
+                    try audio.ensureRunning(mic: true)
+                } catch {
+                    micOn = false
+                    report(error)
+                }
+            }
+        }
         if turnRunning {
             if phase == .hearing || phase == .transcribing { phase = .thinking } // speech over the work led to nothing
             return
@@ -527,11 +577,13 @@ final class ConversationModel {
         live = nil
         liveItem = nil
         interrupt()
+        reportsOnlyTurn = text.isEmpty && earlier.isEmpty && queued.isEmpty && !reports.isEmpty
         work?.onRunning = { [weak self] in self?.workSubagents = $0 }
         let id = UUID()
         turnID = id
         partial = ""
         turnRunning = true
+        endAfterTurn = false
         var userItem: UUID?
         if let shownItem, let i = items.firstIndex(where: { $0.id == shownItem }) {
             items[i].text = text // what was heard piece by piece gives way to the transcript of the whole
@@ -550,6 +602,7 @@ final class ConversationModel {
             message = AgentSetup.backgroundReports(reports) + (message.isEmpty ? "" : "\n\n" + message)
             reports = []
         }
+        message = AgentSetup.stamped(message)
         // The last message got no answer before this one stopped the work on it (Stop, or speaking over it): both go
         // as one message, or the model answers only the newer one (and some APIs refuse two user messages in a row).
         if history.last?.role == .user {
@@ -604,16 +657,22 @@ final class ConversationModel {
             await Task.yield()
             guard id == turnID else { return }
 
-            if isSilentReply(outcome.text.isEmpty ? partial : outcome.text), micOn {
-                history = before
-                // A half-said sentence can look like this too, so nothing the user said disappears.
-                if userItem != nil { setAside = String(message.suffix(2000)) }
+            if isSilentReply(outcome.text.isEmpty ? partial : outcome.text) {
+                if reportsOnlyTurn {
+                    // The agent knows it got the reports and chose not to tell them; the conversation keeps that.
+                    history = outcome.messages
+                } else {
+                    history = before
+                    // A half-said sentence can look like this too, so nothing the user said disappears.
+                    if userItem != nil { setAside = String(AgentSetup.unstamped(message).suffix(2000)) }
+                }
                 items.removeAll { $0.id == answerItem }
                 player?.cancel()
                 player = nil
             } else {
                 history = outcome.messages
-                answerItem = showAnswer(outcome.text, in: answerItem)
+                // Everything that was read aloud stays on screen, the text of earlier tool rounds too.
+                answerItem = showAnswer(partial.isEmpty ? outcome.text : partial, in: answerItem)
                 for sentence in splitter.flush() {
                     player?.say(sentence)
                     phase = .speaking
@@ -635,6 +694,23 @@ final class ConversationModel {
         audio.setSpeaking(false)
         audio.resetDetector()
         restAfterTurn()
+        // The goodbye has been said. A message the user finished meanwhile started a new turn, and that keeps the call going.
+        if endAfterTurn, micOn, !turnRunning { endByVoice() }
+    }
+
+    /// The agent said goodbye: the microphone turns off, and what it picked up during the goodbye (its own echo, noise,
+    /// a phrase cut short) is dropped instead of being sent.
+    private func endByVoice() {
+        endAfterTurn = false
+        interrupt()
+        hearing = false
+        _ = audio.finishPhrase()
+        dropLiveWork()
+        micOn = false
+        audio.stop()
+        UIApplication.shared.isIdleTimerDisabled = false
+        items.append(ChatItem(kind: .notice, text: tr("The conversation ended. Tap the microphone to talk again.")))
+        restAfterTurn()
     }
 
     /// The conversation no longer fits into the model: a new one with the user's last message. What was said stays on screen.
@@ -652,39 +728,84 @@ final class ConversationModel {
         turn = Task { await runTurn(id: id, before: [], message: message, userItem: userItem, work: nil) }
     }
 
+    /// The main agent's own tool for ending the spoken conversation; it stays with the main agent, never the subagent.
+    private var endTools: [AgentTool] {
+        guard settings.voice.endByVoice, micOn else { return [] }
+        return [AgentTool(def: AgentSetup.endDef, finishes: true) { [weak self] _ in
+            await self?.endAfterThisTurn()
+            return (AgentSetup.endAccepted, false)
+        }]
+    }
+
+    private func endAfterThisTurn() { endAfterTurn = true }
+
     /// Main agent's tools: with a subagent only `delegate`, without one the MCP tools themselves.
     private func mainTools() throws -> [AgentTool] {
         let phone = PhoneTools.agentTools(enabled: settings.profilePhoneTools)
         let taken = Set(phone.map(\.def.name))
-        let available = phone + mcpTools.filter { !taken.contains($0.def.name) }.map { AgentTool.mcp($0) }
-        guard settings.subagentEnabled else { return available }
-        guard !available.isEmpty else { return [] }
+        let available = phone + agentMCP.filter { !taken.contains($0.def.name) }.map { AgentTool.mcp($0) }
+        guard settings.subagentEnabled else { return available + endTools }
+        guard !available.isEmpty else { return endTools }
         let choice = settings.subagent.serverID == nil ? settings.main : settings.subagent
         let sub = try client(for: choice, thinking: settings.profile.subagentThinking, missing: "Choose the subagent's server and model in Settings.")
         let system = AgentSetup.subagentSystem(instructions: subagentPrompt)
         let subTools = available
+        let lazy = settings.subagentLoadsToolsOnDemand
         let brief = settings.server(settings.main.serverID)?.api == .apple
         let delegate = AgentTool(def: AgentSetup.delegateDef(tools: subTools.map(\.def), brief: brief)) { [weak self] arguments in
             let task = JSONValue.parse(arguments)?["task"]?.string ?? arguments
+            guard let self else { return (AgentSetup.delegateStarted, false) }
+            if await self.isRunning(task) { return (AgentSetup.delegateAlreadyRunning, false) }
+            let others = await Array(self.runningTasks.values)
             // The main agent does not wait: it answers the user, and the report comes later as its own message.
-            await self?.startInBackground(task, runner: AgentRunner(client: sub, system: system, tools: subTools))
-            return (AgentSetup.delegateStarted, false)
+            await self.startInBackground(task, runner: AgentRunner(client: sub, system: system, tools: subTools, lazy: lazy))
+            return (AgentSetup.delegateStarted(alsoRunning: others), false)
         }
-        return [delegate]
+        // A small model may call one of the subagent's tools itself, knowing it by name from the description of
+        // `delegate`; the call goes to the subagent as its task instead of failing or showing up as text.
+        let redirects = subTools.map { tool in
+            AgentTool(def: tool.def, hidden: true) { [weak self] arguments in
+                guard let self else { return (AgentSetup.delegateStarted, false) }
+                let asked = await self.lastUserWords
+                let task = "The user said: \(asked)\nDo what they asked. Start with the tool \(tool.def.name) and the arguments \(arguments.isEmpty ? "{}" : arguments), and report the result."
+                if await self.isRunning(task) { return (AgentSetup.delegateAlreadyRunning, false) }
+                let others = await Array(self.runningTasks.values)
+                await self.startInBackground(task, runner: AgentRunner(client: sub, system: system, tools: subTools, lazy: lazy))
+                return (AgentSetup.delegateStarted(alsoRunning: others), false)
+            }
+        }
+        return [delegate] + endTools + redirects
+    }
+
+    /// The last thing the user said, without the clock readings.
+    private var lastUserWords: String {
+        AgentSetup.unstamped(history.last { $0.role == .user }?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The same task, apart from case and spacing, is already at work.
+    private func isRunning(_ task: String) -> Bool {
+        let key = Self.taskKey(task)
+        return runningTasks.values.contains { Self.taskKey($0) == key }
+    }
+
+    private static func taskKey(_ task: String) -> String {
+        task.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     private func startInBackground(_ task: String, runner: AgentRunner) {
         let run = UUID()
         delegated.insert(run)
+        runningTasks[run] = task
         background[run] = Task { [weak self] in
             var report: String
             do {
-                report = try await runner.run(messages: [.user(task)]).text
+                report = try await runner.run(messages: [.user(AgentSetup.stamped(task))]).text
             } catch {
                 report = tr("Failed: %@", error.localizedDescription)
             }
             guard let self, !Task.isCancelled else { return }
             self.delegated.remove(run)
+            self.runningTasks[run] = nil
             self.background[run] = nil
             self.reports.append("Task: \(task)\nReport: \(report)")
             self.restAfterTurn()
@@ -746,7 +867,7 @@ final class ConversationModel {
 
     private func isSilentReply(_ text: String) -> Bool {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !t.isEmpty && micOn && AgentSetup.silentReply.hasPrefix(t)
+        return !t.isEmpty && (micOn || reportsOnlyTurn) && AgentSetup.silentReply.hasPrefix(t)
     }
 
     private func showAnswer(_ text: String, in item: UUID?) -> UUID? {

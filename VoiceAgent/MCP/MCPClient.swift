@@ -122,6 +122,13 @@ struct BoundTool: Sendable {
     let client: MCPClient
     let remoteName: String
     var readOnly: Bool?
+    var serverID: UUID?
+
+    /// About how many tokens its description takes in every request (four characters a token, roughly).
+    var tokenEstimate: Int {
+        let json = JSONValue.object(["name": .string(def.name), "description": .string(def.description), "parameters": def.schema]).compact
+        return max(1, json.count / 4)
+    }
 }
 
 enum MCPTools {
@@ -163,7 +170,7 @@ enum MCPTools {
                 for t in list where !server.disabledTools.contains(t.name) {
                     let name = modelName(server: server.name, tool: t.name, taken: taken)
                     taken.insert(name)
-                    tools.append(BoundTool(def: ToolDef(name: name, description: t.description, schema: t.schema), client: client, remoteName: t.name, readOnly: t.readOnly))
+                    tools.append(BoundTool(def: ToolDef(name: name, description: t.description, schema: t.schema), client: client, remoteName: t.name, readOnly: t.readOnly, serverID: server.id))
                 }
             }
         }

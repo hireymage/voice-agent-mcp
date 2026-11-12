@@ -117,8 +117,23 @@ struct AgentProfile: Identifiable, Codable, Hashable {
     /// The agent greets first, so that everything is loaded before the user says anything.
     /// Off: nothing goes to the model until the user's first message.
     var alwaysReady = true
+    /// Tools of the profile's MCP servers that its agents do not get, as "<server id>/<tool name>". Each tool's
+    /// description goes with every request, so fewer tools make shorter requests. Loading the soul still sees them all.
+    var offTools: [String] = []
 
     var displayName: String { name.isEmpty ? tr("Unnamed") : name }
+
+    static func toolKey(server: UUID, tool: String) -> String { "\(server.uuidString)/\(tool)" }
+
+    func gets(tool: String, of server: UUID) -> Bool { !offTools.contains(Self.toolKey(server: server, tool: tool)) }
+
+    func offCount(of server: UUID) -> Int { offTools.filter { $0.hasPrefix(server.uuidString + "/") }.count }
+
+    mutating func set(tool: String, of server: UUID, on: Bool) {
+        let key = Self.toolKey(server: server, tool: tool)
+        offTools.removeAll { $0 == key }
+        if !on { offTools.append(key) }
+    }
 }
 
 extension AgentProfile {
@@ -134,6 +149,7 @@ extension AgentProfile {
         speakReplies = try c.decodeIfPresent(Bool.self, forKey: .speakReplies) ?? true
         mcpServers = try c.decodeIfPresent([UUID].self, forKey: .mcpServers) ?? []
         alwaysReady = try c.decodeIfPresent(Bool.self, forKey: .alwaysReady) ?? true
+        offTools = try c.decodeIfPresent([String].self, forKey: .offTools) ?? []
     }
 }
 
@@ -257,6 +273,8 @@ struct VoiceSettings: Codable, Hashable {
     var silenceMs = 800.0
     /// 0…1; higher hears quieter speech.
     var sensitivity = 0.5
+    /// The agent may end the spoken conversation when the user says goodbye: it says goodbye and the microphone turns off.
+    var endByVoice = true
 }
 
 extension VoiceSettings {
@@ -267,6 +285,7 @@ extension VoiceSettings {
         bargeInOnWord = try c.decodeIfPresent(Bool.self, forKey: .bargeInOnWord) ?? false
         silenceMs = try c.decodeIfPresent(Double.self, forKey: .silenceMs) ?? 800
         sensitivity = try c.decodeIfPresent(Double.self, forKey: .sensitivity) ?? 0.5
+        endByVoice = try c.decodeIfPresent(Bool.self, forKey: .endByVoice) ?? true
     }
 }
 
@@ -293,6 +312,9 @@ struct AppSettings: Codable, Hashable {
     var phoneTools: [String] = []
     /// Subagents start looking things up while the user is still talking.
     var workWhileTalking = true
+    /// A subagent starts with the tools' names and a sentence about each, and loads a tool's description when it
+    /// needs the tool. Off: every tool's whole description goes with every request.
+    var subagentLoadsToolsOnDemand = true
     /// The user has been told where their messages and speech go.
     var dataNoticeAccepted = false
 
@@ -335,6 +357,7 @@ struct AppSettings: Codable, Hashable {
         language = try c.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
         phoneTools = try c.decodeIfPresent([String].self, forKey: .phoneTools) ?? []
         workWhileTalking = try c.decodeIfPresent(Bool.self, forKey: .workWhileTalking) ?? true
+        subagentLoadsToolsOnDemand = try c.decodeIfPresent(Bool.self, forKey: .subagentLoadsToolsOnDemand) ?? true
         dataNoticeAccepted = try c.decodeIfPresent(Bool.self, forKey: .dataNoticeAccepted) ?? false
         let saved = try c.decodeIfPresent([AgentProfile].self, forKey: .profiles) ?? []
         if saved.isEmpty {

@@ -140,6 +140,10 @@ final class AudioIO {
     #endif
 
     func finishPhrase() -> [Int16]? { lock.withLock { detector.finish() } }
+    /// The engine runs with the microphone.
+    var listening: Bool { engineListens && engine?.isRunning == true }
+    /// The engine runs, with or without the microphone.
+    var running: Bool { engine?.isRunning == true }
     func currentPhrase() -> [Int16]? { lock.withLock { detector.current() } }
 
     /// Starts the engine if needed. Turning the microphone on or off rebuilds it (voice processing is fixed at setup).

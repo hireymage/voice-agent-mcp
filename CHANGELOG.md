@@ -6,6 +6,9 @@
 
 - **iPad and a resizable Mac window.** The app runs on iPad in every orientation (iPhone stays portrait). On a Mac the window can be as narrow as a phone, and the conversation keeps a readable width on a wide screen.
 - **Return sends the message, Shift-Return starts a new line** on a hardware keyboard. The on-screen keyboard is unchanged.
+- **Ending the conversation by voice.** When you say goodbye or ask the agent to end the conversation, it says goodbye and the microphone turns off once that has been read aloud. Asking it to wait, to be quiet or to stop talking only stops the answer, and an interruption ends nothing. Which words mean goodbye is left to the model, in any language. It can be switched off in Settings › Voice ("End the conversation by voice").
+- **Contacts give everything they hold:** besides phone numbers and e-mail addresses also postal addresses, the birthday (a birthday without a year as `--MM-DD`) and other dates, nickname, job, relations, web pages, social profiles and messaging. Only the note stays out: reading it needs a permission from Apple.
+- **Calendar events can be searched by text.** `list_events` takes an optional `query` matched against the title, place and notes, ignoring case and accents, so a whole year can be searched for a name; birthdays from the contacts are in the calendar too.
 
 ### Fixed
 
@@ -16,6 +19,8 @@
 - **The keyboard went away after sending.** Tapping send or stop now leaves it up for the next message; a tap into the chat or a settings list still puts it away.
 - **Some models did not tell the time.** Qwen3 Coder 30B answered that it has no access to the current time, or called the calendar tool and gave only the date, although the time was in its instructions. The time now goes to the model as a reading of the device clock, with its time zone and a note that it is the real local time. In a test against that model the answer named the time in 3 of 4 tries, before in none.
 - **The profile menu opened twice on a Mac and iPad** (first another "Profile" item, then the list). The profiles are now shown straight in the menu.
+- **An answer was read aloud twice.** When the model said something and called a tool in the same reply, the next round could say it again in other words, and both were read aloud; what has been read cannot be taken back. A tool can now be the last thing to do (ending the conversation is), and the text of every round stays on screen in order instead of only the last round's.
+- **The agent could not find birthdays.** The contacts tool returned no birthday, and the calendar could only list days, not search for a name.
 
 ### Changed
 
@@ -28,6 +33,8 @@
 - `MacProbeTests`, run only on a Mac with the destination My Mac (Designed for iPad): the microphone starts with echo cancellation and turns on and off again, Apple speech recognition writes Czech speech, Apple's voice answers two sentences asked at once, and the window may be narrow.
 - Return and Shift-Return in the message field; which taps put the keyboard away.
 - The time line the model gets; on a Mac, that it carries the hour.
+- Ending by voice: a goodbye turns the microphone off, an answer without the tool keeps it on, and the tool is offered only while listening with the setting on; a finishing tool with text ends the run; the text of every round is kept in order.
+- Everything a contact holds, without the fields it does not have; searching events by text.
 - `ScrollTests`: the end of the conversation stays in view while answers are written and when the view changes height.
 - Debug builds take `-autoStream YES` to write a long answer slowly on a simulator.
 
